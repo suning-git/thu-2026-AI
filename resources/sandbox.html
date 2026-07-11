@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>沙盒环境简报 · 从零构建智能模型</title>
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2382318E'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white' font-family='sans-serif'%3E智%3C/text%3E%3C/svg%3E">
+</head>
+<body class="doc">
+<nav class="docnav"><div class="wrap"><a href="../index.html">← 从零构建智能模型</a></div></nav>
+<main class="prose">
+<h1>沙盒环境简报（给 coding agent 读）</h1>
+<blockquote>
+<p>用途：让<strong>任何一个 Claude session</strong> 几秒内理解这套沙盒环境——沙盒模型、怎么启动、进去之后能做什么。
+<strong>两类读者都覆盖</strong>：① 在<strong>宿主</strong>上、需要为项目配 <code>.devcontainer</code> 沙盒的 session；② 已在<strong>沙盒容器内</strong>、准备开工的 session。
+安装/搭建步骤<strong>不在本文件</strong>（涉及 sudo，人类按《环境搭建指引》完成）。</p>
+</blockquote>
+<h2>1. 沙盒模型（一句话）</h2>
+<p>rootless Podman 容器 = 权限边界：容器内你是 root、随便折腾；经 user namespace 映射，落到宿主只是无特权普通用户。所以容器里可以放心全开权限——<strong>篱笆是容器</strong>。</p>
+<h2>2. 如果你在宿主上——为项目配沙盒（devcontainer）</h2>
+<p>在 repo 放 <code>.devcontainer/devcontainer.json</code>：</p>
+<pre><code class="language-jsonc">{
+  &quot;name&quot;: &quot;&lt;项目名&gt;&quot;,
+  &quot;image&quot;: &quot;localhost/agent-base:latest&quot;,
+  &quot;runArgs&quot;: [
+    &quot;-v&quot;, &quot;/usr/local/Wolfram:/usr/local/Wolfram:ro&quot;,
+    &quot;-v&quot;, &quot;/etc/machine-id:/etc/machine-id:ro&quot;,
+    &quot;-v&quot;, &quot;${localEnv:HOME}/.Wolfram/Licensing/mathpass:/root/.Wolfram/Licensing/mathpass:ro&quot;
+  ],
+  &quot;mounts&quot;: [&quot;source=claude-cfg,target=/root/.claude,type=volume&quot;],
+  &quot;containerEnv&quot;: { &quot;IS_SANDBOX&quot;: &quot;1&quot; },
+  &quot;remoteEnv&quot;:    { &quot;IS_SANDBOX&quot;: &quot;1&quot; },
+  &quot;customizations&quot;: { &quot;vscode&quot;: { &quot;extensions&quot;: [&quot;Anthropic.claude-code&quot;] } }
+}
+</code></pre>
+<ul>
+<li><strong>Dev Containers 这条路用微软 VS Code</strong>（Cursor 的同名 fork 与 podman 不兼容）。</li>
+<li><code>IS_SANDBOX=1</code>：官方逃生阀——Claude Code 默认拒绝 root 下全权限，此变量声明"我在沙盒里"。写两处不是冗余：<code>containerEnv</code> 改动要 <strong>Rebuild Container</strong> 才生效，<code>remoteEnv</code> 改完 <strong>Reload Window</strong> 即生效。</li>
+<li>登录态在 <code>claude-cfg</code> 具名卷：首次登录后，换容器免登。</li>
+<li>改完配置：命令面板 → <strong>Dev Containers: Rebuild and Reopen in Container</strong>。</li>
+<li>本机有 NVIDIA GPU 才加 <code>"--device", "nvidia.com/gpu=all"</code>；没有就不加（课程算力在服务器）。</li>
+</ul>
+<h2>3. Mathematica 挂载 —— ⚠ 关键坑：必须挂 <code>/etc/machine-id</code></h2>
+<p>Wolfram 授权按 <strong>MathID</strong> 绑机器，而 <strong>MathID 是从 <code>/etc/machine-id</code> 算的</strong>。容器默认有自己的 machine-id → MathID 算出来是<strong>空的</strong> → 报 <code>Your Wolfram product is not activated</code>。<strong>把宿主的 <code>/etc/machine-id</code> 只读挂进去，MathID 立刻和宿主一致、授权通过。</strong>（网卡 MAC / <code>--network host</code> 都不是关键，machine-id 才是。）</p>
+<p>三条挂载，全部 <code>:ro</code>（容器只能用，改不动宿主的安装与授权）：</p>
+<pre><code>-v /usr/local/Wolfram:/usr/local/Wolfram:ro
+-v /etc/machine-id:/etc/machine-id:ro
+-v ~/.Wolfram/Licensing/mathpass:/root/.Wolfram/Licensing/mathpass:ro
+</code></pre>
+<p>容器内使用：<code>export PATH="$PATH:/usr/local/Wolfram/Wolfram/&lt;版本&gt;/Executables"</code> 后用 <code>wolframscript</code>（无头）。</p>
+<h2>4. 如果你在沙盒容器内——能 / 不能做什么</h2>
+<ul>
+<li>你是 root：<code>apt</code> / <code>pip</code> 随便装；改动仅存在于本容器，<strong>退出全部丢弃 → 要保留的东西写进 <code>/work</code>（就是项目目录），git commit 勤一点</strong>。</li>
+<li>网络默认可用（装包没问题）。本机没有 GPU 也照常干活——课程算力在服务器上。</li>
+<li>挂载进来的目录没有副本：删了就真没了（除非 git 能救）。别碰 <code>/work</code> 之外你不理解的挂载点。</li>
+</ul>
+<h2>5. 给人类的提示（人类向你问环境问题时）</h2>
+<ul>
+<li>装 podman / Node / Mathematica 这类 <strong>sudo 步骤</strong>：让人类照《环境搭建指引》自己做，你负责解释每条命令。</li>
+<li>容器里 root 却不能 <code>cd /work</code>：多半是宿主设了全局 <code>userns</code>（查 <code>~/.config/containers/containers.conf</code>，删掉；特殊需求按次 <code>--userns=</code> 传）。</li>
+<li>Mathematica 报"未激活"：见 §3——十有八九是 <code>/etc/machine-id</code> 没挂。</li>
+</ul>
+</main>
+<footer class="site"><div class="wrap">从零构建智能模型 · 苏宁 · 丘成桐数学科学中心</div></footer>
+</body>
+</html>

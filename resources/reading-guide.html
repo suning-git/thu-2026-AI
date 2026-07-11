@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Python 与 PyTorch 读码手册 · 从零构建智能模型</title>
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2382318E'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white' font-family='sans-serif'%3E智%3C/text%3E%3C/svg%3E">
+</head>
+<body class="doc">
+<nav class="docnav"><div class="wrap"><a href="../index.html">← 从零构建智能模型</a></div></nav>
+<main class="prose">
+<h1>Python 与 PyTorch 读码手册 —— 从 minimal_gpt 到训练框架</h1>
+<blockquote>
+<p><strong>配套代码</strong>：第一周发放的 <code>minimal_gpt/</code> 文件夹（<code>minimal_gpt.py</code> = 推理，<code>train_toylang.py</code> = 训练）。
+<strong>用法</strong>：代码开一边、手册开一边。本课的工作方式是"AI 动手，你监督到每一行"——这本手册帮你把每一行看懂。
+<strong>假设</strong>：你会至少一门语言（Mathematica / C++ 皆可，手册两边都给类比），懂线性代数。不假设你学过 Python。
+遇到手册没覆盖的语法：先问你的 AI 助手，这本身就是练习。</p>
+</blockquote>
+<hr />
+<h2>0. 怎么用这本手册</h2>
+<ul>
+<li><strong>第一遍</strong>（本周）：§1–§9 顺读，每节的例子都能在 <code>minimal_gpt.py</code> 里找到原文——标注了行号附近的函数名，对照着读。</li>
+<li><strong>第二遍</strong>（背诵作业时）：§10 的形状追踪表 = 可视化网站每个箭头的代码版。<code>python minimal_gpt.py --trace</code> 打印的就是这些形状。</li>
+<li><strong>改代码前</strong>（周日 Hackathon）：§11 讲透训练循环——你认领的 ablation 就从改 <code>train_toylang.py</code> 开始。</li>
+<li><strong>速查</strong>：§13。</li>
+</ul>
+<p>全书约定：<code>(B, T, C)</code> = (batch, 序列长度, 通道数)。minimal_gpt 里 <code>B=1, T=11, C=48</code>。</p>
+<hr />
+<h2>1. import：把工具搬进来</h2>
+<p><code>minimal_gpt.py</code> 开头：</p>
+<pre><code class="language-python">import argparse, base64, json, math, random   # 一行导入多个标准库模块
+import numpy as np                            # 导入并取别名
+import torch, torch.nn as nn, torch.nn.functional as F
+</code></pre>
+<ul>
+<li><code>import math</code> → 之后用 <code>math.sqrt(x)</code> 调用；</li>
+<li><code>import torch.nn as nn</code> → 别名，之后写 <code>nn.Linear</code> 而不是 <code>torch.nn.Linear</code>；</li>
+<li><code>from functools import partial</code>（train 框架里会见到）→ 只把 <code>partial</code> 这一个名字搬进来。</li>
+</ul>
+<p><strong>C++ 类比</strong>：<code>import X</code> ≈ <code>#include</code> + 命名空间限定；<code>from X import Y</code> ≈ <code>using X::Y</code>。
+<strong>Mathematica 类比</strong>：<code>Needs["X</code>"]<code>，但 Python 必须显式写模块名前缀（除非</code>from ... import`）。</p>
+<p>三个常用惯例记住就行：<code>np</code> = NumPy，<code>nn</code> = 神经网络模块，<code>F</code> = 函数式 API（<code>F.softmax</code>、<code>F.cross_entropy</code>）。</p>
+<hr />
+<h2>2. 容器与语法陷阱</h2>
+<h3>2.1 list / tuple / dict</h3>
+<pre><code class="language-python">x = [1, 2, 3]          # list：可变（能改元素、能 append）
+t = (1, 2, 3)          # tuple：不可变（创建后动不了）
+d = {&quot;n_layer&quot;: 3}     # dict：键值对；d[&quot;n_layer&quot;] 访问，d[&quot;k&quot;]=v 添加
+</code></pre>
+<p><code>minimal_gpt.py</code> 真实例子：</p>
+<pre><code class="language-python">VOCAB = &quot;ABC&quot;                                  # 字符串也是序列，VOCAB[2] == &quot;C&quot;
+encode = lambda s: [VOCAB.index(c) for c in s] # &quot;BAC&quot; -&gt; [1, 0, 2]
+cfg = json.load(open(path))[&quot;config&quot;]          # cfg 是 dict：cfg[&quot;n_head&quot;] == 2
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Python</th>
+<th>Mathematica</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[a, b, c]</code></td>
+<td><code>{a, b, c}</code></td>
+<td>list → List</td>
+</tr>
+<tr>
+<td><code>(a, b, c)</code></td>
+<td><code>{a, b, c}</code></td>
+<td>tuple ≈ 不可变 List</td>
+</tr>
+<tr>
+<td><code>{"a": 1}</code></td>
+<td><code>&lt;\|"a" -&gt; 1\|&gt;</code></td>
+<td>dict → Association</td>
+</tr>
+<tr>
+<td><code>f(*args)</code></td>
+<td><code>f @@ args</code></td>
+<td>展开（见 §3）</td>
+</tr>
+</tbody>
+</table>
+<h3>2.2 拆包赋值</h3>
+<p>把容器元素一次拆给多个变量——PyTorch 代码里到处都是：</p>
+<pre><code class="language-python">B, T, C = x.shape          # 张量形状拆成三个数（CausalSelfAttention.forward 第一行）
+q, k, v = qkv.split(C, dim=2)   # 一个张量切成三个
+A, B, C = 0, 1, 2          # train_toylang.py 开头：三个字母的 id
+</code></pre>
+<h3>2.3 逗号陷阱（Mathematica 用户必读）</h3>
+<p>Python 的逗号含义<strong>取决于上下文</strong>：</p>
+<pre><code class="language-python">a = 1, 2        # 赋值右侧：逗号创建 tuple，a == (1, 2)
+f(1, 2)         # 函数调用内：逗号是参数分隔符（两个参数）
+f((1, 2))       # 一个参数（一个 tuple）
+x, y = (1, 2)   # 赋值左侧：拆包
+</code></pre>
+<p>单元素 tuple 必须写 <code>(a,)</code>——<code>(a)</code> 只是带括号的 <code>a</code>。</p>
+<p>Mathematica 的 <code>Sequence[1,2,3]</code> 会自动展开；Python 的 tuple <strong>不会</strong>。要展开必须用 <code>*</code>（下一节）——所以 <code>*</code> 才对应 <code>Apply</code>（<code>@@</code>），tuple 本身不对应 <code>Sequence</code>。</p>
+<h3>2.4 除法</h3>
+<pre><code class="language-python">7 / 2    # 3.5   浮点除法（C++ 整数 / 是整除，Python 不是！）
+7 // 2   # 3     整除
+7 % 2    # 1     取模
+</code></pre>
+<p><code>minimal_gpt.py</code>：<code>hd = C // self.n_head</code>（每头维度 = 48 // 2 = 24）——写 <code>/</code> 会得到 24.0（浮点数），后面当维度用就报错。</p>
+<hr />
+<h2>3. 函数参数</h2>
+<h3>3.1 位置参数与关键字参数</h3>
+<p>定义时不区分；<strong>调用</strong>时才区分：</p>
+<pre><code class="language-python">F.softmax(att, dim=-1)          # dim 按名称传（清晰，推荐）
+torch.cat([y1, y2], 3)          # 3 按位置传（等价于 dim=3）
+</code></pre>
+<p>规则：按位置传的必须在按名称传的前面。</p>
+<h3>3.2 默认值</h3>
+<pre><code class="language-python">def generate(model, prompt_ids, steps, trace=False):   # trace 不传就是 False
+</code></pre>
+<h3>3.3 <code>*</code> 与 <code>**</code>：展开与收集</h3>
+<pre><code class="language-python"># 调用时展开
+args = (1, 2, 3);  f(*args)             # 等价 f(1, 2, 3)
+kw = {&quot;lr&quot;: 5e-4}; AdamW(params, **kw)  # 等价 AdamW(params, lr=5e-4)
+
+# 定义时收集
+def f(*args, **kwargs): ...
+f(1, 2, a=3)    # args == (1, 2)，kwargs == {&quot;a&quot;: 3}
+</code></pre>
+<p><code>train_toylang.py</code> 真实例子（很妙，值得盯三分钟）：</p>
+<pre><code class="language-python">xs, ys = zip(*[ds[i] for i in range(bs)])
+</code></pre>
+<p>分解：<code>[ds[i] ...]</code> 生成 64 个 <code>(x, y)</code> 对的 list → <code>*</code> 把它展开成 64 个参数 → <code>zip</code> 把它们"转置"成
+（64 个 x）和（64 个 y）两组 → 拆包给 <code>xs, ys</code>。这是 Python 版的 <code>Transpose</code>。</p>
+<h3>3.4 <code>partial</code>：固定一部分参数</h3>
+<pre><code class="language-python">from functools import partial
+AdamWFactory = partial(torch.optim.AdamW, fused=True)
+# 之后 AdamWFactory(params) == torch.optim.AdamW(params, fused=True)
+</code></pre>
+<p>数学类比：给定 $f(x,y,z)$，<code>partial(f, z=3)</code> 返回 $g(x,y)=f(x,y,3)$。（第二周框架里会见到。）</p>
+<hr />
+<h2>4. 类与 nn.Module：<code>model(x)</code> 为什么能跑</h2>
+<h3>4.1 基本类语法（对照 <code>minimal_gpt.py</code> 的 <code>Block</code>）</h3>
+<pre><code class="language-python">class Block(nn.Module):                       # Block 继承自 nn.Module
+    def __init__(self, n_embd, n_head, block_size):
+        super().__init__()                    # 先调父类构造函数（nn.Module 需要）
+        self.ln_1 = nn.LayerNorm(n_embd)      # self.xxx = 成员变量
+        self.attn = CausalSelfAttention(n_embd, n_head, block_size)
+
+    def forward(self, x):                     # 前向计算写在 forward 里
+        x = x + self.attn(self.ln_1(x))
+        return x
+</code></pre>
+<ul>
+<li><code>self</code>：方法的第一个参数自动接收实例本身（≈ C++ 的 <code>this</code>，但必须显式写出来）；</li>
+<li><code>super().__init__()</code>：调用父类构造函数；</li>
+<li>Python 没有 <code>public/private</code>，下划线前缀 <code>_init_weights</code> 只是"这是内部方法"的<strong>约定</strong>。</li>
+</ul>
+<h3>4.2 三种"加括号调用"</h3>
+<table>
+<thead>
+<tr>
+<th><code>x()</code> 里的 x 是</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>类</td>
+<td>创建实例：<code>GPT(cfg)</code> 返回一个模型对象</td>
+</tr>
+<tr>
+<td>实例</td>
+<td>执行 <code>x.__call__(...)</code>（没定义就报错）</td>
+</tr>
+<tr>
+<td>函数</td>
+<td>执行函数体</td>
+</tr>
+</tbody>
+</table>
+<p><strong>关键机关</strong>：<code>nn.Module</code> 定义了 <code>__call__</code>，内部转发给 <code>forward</code>：</p>
+<pre><code class="language-python">model(idx)        # 实际执行 model.__call__(idx) → 内部调 model.forward(idx)
+</code></pre>
+<p>所以 <code>x = x + self.attn(self.ln_1(x))</code> 里，<code>self.ln_1(x)</code>、<code>self.attn(...)</code> 都是"实例当函数用"。
+（为什么不直接调 <code>forward</code>？<code>__call__</code> 里还挂着 PyTorch 的钩子逻辑——永远用 <code>model(x)</code>，别用 <code>model.forward(x)</code>。）</p>
+<h3>4.3 isinstance：按类型分支</h3>
+<p><code>train_toylang.py</code> 的权重初始化：</p>
+<pre><code class="language-python">def _init(m):
+    if isinstance(m, nn.Linear):        # m 是线性层吗？
+        nn.init.normal_(m.weight, mean=0.0, std=0.02)
+    elif isinstance(m, nn.Embedding):
+        ...
+model.apply(_init)                      # 对模型的每个子模块递归调用 _init（见 §9）
+</code></pre>
+<h3>4.4 <code>@dataclass</code>（第二周框架的配置写法）</h3>
+<pre><code class="language-python">@dataclass
+class GPTConfig:
+    n_layer: int = 12
+    n_embd: int = 768
+</code></pre>
+<p><code>@dataclass</code> 是<strong>装饰器</strong>：接收类、返回增强版的类——自动生成 <code>__init__</code> 等，等价于手写
+<code>def __init__(self, n_layer=12, n_embd=768): self.n_layer = n_layer; ...</code>。
+注意：<code>n_layer: int</code> 的类型注解 <strong>Python 不强制</strong>（写 <code>config.n_layer = "hi"</code> 也不报错），只服务于 IDE 提示和文档。
+minimal_gpt 用的是更朴素的 dict 配置（<code>cfg["n_layer"]</code>），两种风格都要认识。</p>
+<hr />
+<h2>5. 张量 I：索引与切片</h2>
+<h3>5.1 一维切片（list / tuple / 张量通用）</h3>
+<pre><code class="language-python">x[1:4]     # 索引 1,2,3（含头不含尾！）
+x[:3]      # 前 3 个
+x[-1]      # 最后一个
+x[-2:]     # 最后两个
+x[::2]     # 步长 2
+</code></pre>
+<p><code>minimal_gpt.py</code> 真实例子：</p>
+<pre><code class="language-python">cond = idx[:, -model.block_size:]   # 生成循环里：只保留最后 11 个 token
+seq = cat[:-1]; y = cat[1:]         # train：x = 前 11 个，y = 后 11 个（左移一位！）
+</code></pre>
+<p><strong>Mathematica 对照</strong>：<code>x[a:b]</code> ≈ <code>x[[a+1 ;; b]]</code>——Python 从 0 数、尾端开区间；Mathematica 从 1 数、双端闭区间。<code>-1</code> 表示末尾，两边相同。</p>
+<h3>5.2 多维索引（张量特有）</h3>
+<pre><code class="language-python">x[:, -1, :]    # 所有 batch 的最后一个位置，形状 (B, T, C) → (B, C)
+x[0, 5]        # 第 0 个 batch、第 5 个位置的向量
+logits[0, -1]  # minimal_gpt 生成时：取最后一列 logits
+</code></pre>
+<p><code>:</code> = "这一维全要"（Mathematica 的 <code>All</code>）。注意 list 不支持 <code>a[:, 1]</code>——这是 NumPy/PyTorch 的扩展语法。</p>
+<h3>5.3 省略号与 None</h3>
+<pre><code class="language-python">x[..., :d]        # &quot;...&quot; 自动补足中间所有 &quot;:&quot;——取最后一维的前 d 个
+cos[None, :, None, :]   # None = 在该处插一个大小为 1 的新维度（为广播做准备，见 §6.3）
+</code></pre>
+<p>（minimal_gpt 没用到这两个，第二周框架的 RoPE 代码里是主角——见 §12。）</p>
+<h3>5.4 标量索引 vs 列表索引</h3>
+<pre><code class="language-python">v[:, -1]      # 形状 (B,)   ：标量索引，这一维消失
+v[:, [-1]]    # 形状 (B, 1) ：列表索引，这一维保留（大小 1）
+</code></pre>
+<p>Mathematica 对照：<code>v[[All, -1]]</code> vs <code>v[[All, {-1}]]</code>——完全同一个区别。</p>
+<h3>5.5 布尔索引（第二周采样代码里的 top-k）</h3>
+<pre><code class="language-python">logits[logits &lt; v[:, [-1]]] = -float('Inf')
+</code></pre>
+<p>三步：<code>v[:, [-1]]</code> 取每行阈值（保持 2D 才能广播）→ <code>logits &lt; 阈值</code> 得到布尔张量 → 用布尔张量当索引，把 True 的位置统统赋值。一行完成"小于阈值的全部置为 −∞"。</p>
+<hr />
+<h2>6. 张量 II：形状变换与广播</h2>
+<h3>6.1 张量是"满矩形"</h3>
+<pre><code class="language-python">[[1, 2], [3, 4, 5]]               # list 可以参差不齐
+torch.tensor([[1, 2], [3, 4, 5]]) # 张量不行，报错——每维大小固定
+</code></pre>
+<p>内存里按<strong>行优先</strong>一维排开：<code>[[1,2,3],[4,5,6]].flatten() == [1,2,3,4,5,6]</code>。</p>
+<h3>6.2 view / cat</h3>
+<pre><code class="language-python">x.view(3, 2)      # 不动内存，只重新分组解读；要求总元素数不变
+x.view(B, T, -1)  # -1 = 这一维自动推断
+
+torch.cat([y1, y2], dim)   # 沿 dim 拼接；其余维度必须完全相同
+</code></pre>
+<p><code>minimal_gpt.py</code> attention 里的连招（背诵作业的核心形状变换）：</p>
+<pre><code class="language-python">q = q.view(B, T, nh, hd).transpose(1, 2)   # (B,T,C) → (B,T,2,24) → (B,2,T,24)
+...
+y = y.transpose(1, 2).contiguous().view(B, T, C)   # 逆操作拼回 (B,T,C)
+</code></pre>
+<p><code>transpose</code> 交换两个维度但<strong>不动内存</strong>；动过 transpose 的张量内存不再连续，<code>view</code> 会拒绝工作——所以要先 <code>.contiguous()</code>（真正搬一次内存）再 <code>view</code>。这就是那串三连的由来。</p>
+<h3>6.3 广播（broadcasting）</h3>
+<p>两个形状不同的张量做逐元素运算时，PyTorch 按规则自动扩展：</p>
+<ol>
+<li><strong>右对齐</strong>，缺的维度左边补 1：<code>(T,C)</code> 和 <code>(B,T,C)</code> → <code>(1,T,C)</code> 和 <code>(B,T,C)</code>；</li>
+<li>每个维度要么相同、要么其中一个是 1（是 1 的沿该维复制）；</li>
+<li>输出形状取每维的 max。</li>
+</ol>
+<p><code>minimal_gpt.py</code> 里最重要的一次广播——Embedding：</p>
+<pre><code class="language-python">tok = self.transformer.wte(idx)                    # (B, T, C)
+pos = self.transformer.wpe(torch.arange(T))        # (T, C)
+x = tok + pos                                      # (T,C) 广播成 (1,T,C) 再加 → (B,T,C)
+</code></pre>
+<p>每个 batch 都加上同一份位置向量——一行代码，零循环。</p>
+<h3>6.4 einsum（可选，但数学系会喜欢）</h3>
+<p>爱因斯坦求和记号直接搬进代码：</p>
+<pre><code class="language-python">torch.einsum('ij,jk-&gt;ik', A, B)   # 矩阵乘法：out[i,k] = Σ_j A[i,j]B[j,k]
+torch.einsum('i,j-&gt;ij', a, b)     # 外积
+torch.einsum('ii-&gt;', A)           # 迹
+</code></pre>
+<p>规则：同字母 = 同维度；输入有、输出没有的字母 = 对它求和。日常写法还是 <code>@</code>（矩阵乘）和 <code>*</code>（逐元素），但读别人代码会撞见 einsum。</p>
+<hr />
+<h2>7. 内存模型：引用、拷贝、视图（bug 高发区）</h2>
+<h3>7.1 赋值不复制</h3>
+<pre><code class="language-python">x = v        # x、v 指向同一个对象
+x[0] = 999   # v 也变了！
+</code></pre>
+<p><strong>Mathematica 用户特别注意</strong>：Mathematica 的 <code>y = x</code> 是复制语义，Python 恰恰相反——赋值只传引用。</p>
+<h3>7.2 三个层级</h3>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x = v</code></td>
+<td>引用：完全同一个对象</td>
+</tr>
+<tr>
+<td><code>v[:]</code> / <code>v.copy()</code>（list）</td>
+<td>浅拷贝：新容器，<strong>内部元素仍共享</strong></td>
+</tr>
+<tr>
+<td><code>copy.deepcopy(v)</code></td>
+<td>深拷贝：逐层全新</td>
+</tr>
+</tbody>
+</table>
+<p><code>train_toylang.py</code> 里为什么用 deepcopy：</p>
+<pre><code class="language-python">best = {&quot;sd&quot;: copy.deepcopy(model.state_dict()), ...}
+</code></pre>
+<p><code>state_dict()</code> 里的张量和模型共享内存——不 deepcopy 的话，训练继续走，"存下来的最优权重"会跟着变掉。</p>
+<h3>7.3 张量切片是视图（比浅拷贝更激进）</h3>
+<pre><code class="language-python">b = a[:2]    # b 与 a 共享底层内存
+b[0] = 999   # a[0] 也变成 999！
+</code></pre>
+<p>list 切片给你新容器；<strong>张量切片什么都不新建</strong>，直接窗口到同一块内存。<code>view</code>、<code>transpose</code> 同理。
+要独立副本：<code>b = a.clone()</code>。</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>list</th>
+<th>张量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x = v</code></td>
+<td>引用</td>
+<td>引用</td>
+</tr>
+<tr>
+<td>切片</td>
+<td>浅拷贝</td>
+<td><strong>视图（共享内存）</strong></td>
+</tr>
+<tr>
+<td>独立副本</td>
+<td><code>deepcopy</code></td>
+<td><code>.clone()</code></td>
+</tr>
+<tr>
+<td>运算 <code>v + 1</code></td>
+<td>新对象</td>
+<td>新张量</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>8. 惯用法拾遗</h2>
+<p>对照 <code>minimal_gpt.py</code> / <code>train_toylang.py</code>，每条都有原文。</p>
+<p><strong>列表推导式</strong>（GPT 的层堆叠）：</p>
+<pre><code class="language-python">h = nn.ModuleList([Block(C, nh, block) for _ in range(cfg[&quot;n_layer&quot;])])
+# 等价于 for 循环 + append；&quot;_&quot; 表示循环变量用不上
+</code></pre>
+<p><strong>三元表达式</strong>：</p>
+<pre><code class="language-python">split = &quot;test&quot; if h % 4 == 0 else &quot;train&quot;     # train_toylang 的数据划分
+</code></pre>
+<p><strong>assert</strong>：不满足就当场报错，是给读者的"此处必真"声明：</p>
+<pre><code class="language-python">assert list(arr.shape) == v[&quot;shape&quot;], f&quot;shape mismatch {k}&quot;
+</code></pre>
+<p><strong>f-string</strong>：字符串里 <code>{表达式}</code> 直接求值填入：</p>
+<pre><code class="language-python">print(f&quot;loaded: n_head={cfg['n_head']} params={n:,}&quot;)   # &quot;:,&quot; = 千分位逗号
+</code></pre>
+<p><strong>argparse</strong>（你已经在用了）：</p>
+<pre><code class="language-python">ap = argparse.ArgumentParser()
+ap.add_argument(&quot;--input&quot;, default=&quot;BABCAB&quot;)
+ap.add_argument(&quot;--trace&quot;, action=&quot;store_true&quot;)   # 出现即 True 的开关
+args = ap.parse_args()          # 之后 args.input / args.trace
+# 这就是 python minimal_gpt.py --input BABCAB --trace 的来历
+</code></pre>
+<p><strong>装饰器与 with</strong>（自动"进入/退出"管理）：</p>
+<pre><code class="language-python">@torch.no_grad()          # minimal_gpt 的 generate 顶上那行
+def generate(...): ...
+</code></pre>
+<p>推理不需要梯度；这个装饰器 = 整个函数体都包在"关闭梯度追踪"环境里，等价于函数内写
+<code>with torch.no_grad(): ...</code>。C++ 类比：RAII——构造时开、析构时关，异常也不会漏关。
+（<code>@torch.no_grad()</code> 带括号：先调用得到一个对象，那个对象才是装饰器。）</p>
+<p><strong>yield / 生成器</strong>（第二周框架的流式生成）：</p>
+<pre><code class="language-python">def generate(...):
+    for _ in range(max_tokens):
+        ...
+        yield token     # 产出一个就交出去，函数在此暂停，下次从这里继续
+</code></pre>
+<p>调用方 <code>for tok in model.generate(...)</code> 就能边生成边打印（ChatGPT 逐字蹦的机制）。
+minimal_gpt 的 generate 是普通函数（攒齐再返回）——对比着看正好理解 yield 解决什么问题。</p>
+<hr />
+<h2>9. PyTorch 模块系统</h2>
+<p><strong>容器必须用 nn 家族的</strong>（<code>minimal_gpt.py</code> 的 GPT 构造函数）：</p>
+<pre><code class="language-python">self.transformer = nn.ModuleDict(dict(
+    wte=nn.Embedding(V, C),
+    h=nn.ModuleList([Block(...) for _ in range(L)]),
+    ln_f=nn.LayerNorm(C),
+))
+</code></pre>
+<p>用普通 dict/list 装模块，PyTorch 就<strong>看不见</strong>里面的参数——不会训练、不会随模型搬家。访问：<code>self.transformer.wte</code>、<code>self.transformer.h[0]</code>、<code>for block in self.transformer.h:</code>。</p>
+<p><strong>register_buffer</strong>（causal mask 的存放处）：</p>
+<pre><code class="language-python">mask = torch.tril(torch.ones(T, T)).view(1, 1, T, T)   # 下三角矩阵！
+self.register_buffer(&quot;mask&quot;, mask, persistent=False)
+</code></pre>
+<p>buffer = 不参与训练、但属于模型的张量（随模型移动设备）；<code>persistent=False</code> = 不存进 checkpoint。之后用 <code>self.mask</code> 访问。<code>torch.tril</code> = 下三角（正是"位置 i 只看 ≤ i"的矩阵形态）。</p>
+<p><strong>apply</strong>：对自己和所有子模块递归调用一个函数（初始化的标准姿势，见 §4.3）。</p>
+<p><strong>parameters / numel</strong>：</p>
+<pre><code class="language-python">sum(p.numel() for p in model.parameters())   # 数参数量：85,728 就是这么来的
+</code></pre>
+<p><strong>.to()</strong>：搬设备/换精度，<code>x.to("cuda")</code>、<code>out.to(x.dtype)</code>。</p>
+<p><strong>方法链</strong>：很多张量方法返回新张量，可以连写：<code>F.softmax(logits, -1).argmax()</code>。</p>
+<hr />
+<h2>10. 实战 I：minimal_gpt.py 形状全追踪</h2>
+<p>背诵作业的自检工具。<code>--trace</code> 打印的就是这张表；对着可视化网站，每个箭头都应该能对上一行：</p>
+<pre><code>输入 idx: (B, T) = (1, 11)                     ← 11 个字母的 id
+  ↓ wte 查表 + wpe 查表相加（广播，§6.3）
+x: (1, 11, 48)
+  ↓ ln_1（逐位置归一）
+  ↓ c_attn：(1, 11, 48) → (1, 11, 144)         ← 一个矩阵同时算出 q,k,v
+  ↓ split → q, k, v 各 (1, 11, 48)
+  ↓ view + transpose（§6.2）→ 各 (1, 2, 11, 24)  ← 切成 2 个头
+  ↓ q @ k.transpose(-2,-1) / √24 → att: (1, 2, 11, 11)   ← 那张 (T,T) 表！
+  ↓ masked_fill(mask==0, -inf)                 ← 上三角封死：只看过去
+  ↓ softmax(dim=-1) → 每行变概率
+  ↓ att @ v → (1, 2, 11, 24)                   ← v 的加权平均
+  ↓ transpose + contiguous + view → (1, 11, 48) ← 两个头拼回
+  ↓ c_proj → (1, 11, 48)，加回 x（residual）
+  ↓ ln_2 → mlp：48 → 192 → GELU → 48，加回 x
+  （以上 Block 重复 3 次）
+  ↓ ln_f → lm_head：(1, 11, 48) → (1, 11, 3)
+logits: 11 个位置各一列分数 → softmax → 11 列概率
+</code></pre>
+<p><strong>动手</strong>：跑 <code>python minimal_gpt.py --trace --eval 0</code>，逐行对照上表；再改 <code>--input</code>，看哪些数变了、哪些没变（提示：位置 i 的输出只依赖 ≤ i——课上讲过的那条规则，可以自己用两个输入验证）。</p>
+<hr />
+<h2>11. 实战 II：train_toylang.py 训练循环解剖</h2>
+<p>训练脚本 = 五个部件。周日的 ablation 无论改哪里，先认清全图：</p>
+<pre><code class="language-python"># ① 数据：语言 G 的句子 → (x, y) 对
+seq = gen_sequence(rng)          # 12 个 token 的合法句子
+x, y = cat[:-1], cat[1:]         # y = x 左移一位（每个位置预测下一个）
+
+# ② 模型：TrainGPT（与 minimal_gpt.GPT 同构，多了 dropout）
+logits = model(x)                # (B, 11, 3)
+
+# ③ 损失：所有位置一起算交叉熵
+loss = F.cross_entropy(logits.view(-1, 3), y.view(-1))
+#      view(-1, 3)：把 (B,11,3) 摊平成 (B*11, 3)——11 个位置全是考题
+
+# ④ 反向 + 更新（背下这四行，所有 PyTorch 训练都长这样）
+opt.zero_grad(set_to_none=True)  # 清空上一步的梯度
+loss.backward()                  # 反向传播：算出所有参数的梯度
+torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)   # 梯度裁剪（防爆）
+opt.step()                       # 沿梯度更新参数
+
+# ⑤ 评估：每 100 步在&quot;没见过的句子&quot;上测（train/test 用哈希分流，见 §8 三元表达式）
+</code></pre>
+<p>值得注意的三个细节：</p>
+<ul>
+<li><strong>优化器分组</strong>（<code>configure_optimizers</code>）：矩阵参数用 weight decay、bias/LayerNorm/Embedding 不用——
+  参数按名字分成两组，各配不同超参传给 AdamW。这是所有正经训练代码的标配结构。</li>
+<li><strong>dropout 与 <code>self.training</code></strong>：<code>F.dropout(x, p, self.training)</code> 只在训练时生效；
+  <code>model.eval()</code> / <code>model.train()</code> 切换这个开关。评估前忘了 <code>eval()</code> 是新手第一大坑。</li>
+<li><strong>最优 checkpoint</strong>：为什么 <code>deepcopy(model.state_dict())</code>——见 §7.2。</li>
+</ul>
+<p><strong>动手（周日的形状）</strong>：把 <code>n_head=2</code> 改成 1 或 4 重训一次，和你自己跑出的原版比分语境指标；
+或者把 <code>clip_grad_norm_</code> 那行注释掉看看会怎样。<strong>只改一处，其余不动</strong>——对照实验的铁律。</p>
+<hr />
+<h2>12. 预告：第二周训练框架里会遇到的</h2>
+<p>第二周发的框架是真·GPT 训练代码。多出来的东西提前挂个号，细讲在课上：</p>
+<p><strong>RoPE（旋转位置编码）</strong>：minimal_gpt 用"查表加法"（wpe）编码位置；现代 GPT 改用"旋转"——
+把 q、k 的每对分量按位置角度 θ = t·f 做 2D 旋转，点积 q·k 自动携带相对位置信息。
+代码上就是 §5.3 的 <code>None</code> 广播 + §6.2 的 cat：</p>
+<pre><code class="language-python">x1, x2 = x[..., :d], x[..., d:]              # 最后一维劈两半
+y1, y2 = x1*cos + x2*sin, -x1*sin + x2*cos   # 旋转（cos/sin 预先造表，用 None 对齐形状）
+out = torch.cat([y1, y2], -1)
+</code></pre>
+<p><strong>融合的 attention</strong>：那串 手写 softmax(qkᵀ/√A)·v 会被一行替换：</p>
+<pre><code class="language-python">y = F.scaled_dot_product_attention(q, k, v, is_causal=True)   # is_causal = 自动下三角 mask
+</code></pre>
+<p>数学一个字没变，只是内核融合（快、省显存）。<strong>动手</strong>：可以先在 minimal_gpt 里替换验证输出逐位一致。</p>
+<p><strong>batch size 的学问</strong>：mini-batch 梯度是全数据梯度的估计，batch 越大估计越准——但存在
+<strong>临界批次大小</strong>，超过之后纯属浪费算力（OpenAI, arXiv:1812.06162）。在临界范围内，
+最终 loss 基本只看总 token 数，不看你分几步走。这件事第二周你们会亲手验证。</p>
+<p><strong>多卡训练（DDP）一段话</strong>：每张卡一份完整模型、各算各的 batch → backward 后 All-Reduce
+把梯度求平均 → 每张卡用同一份平均梯度更新 → 权重永远一致。通信藏在 backward 里逐层进行，
+所以多卡近乎线性加速。模型大到单卡装不下时另有分片方案（FSDP），课上用到再讲。</p>
+<p><strong>研究钩子</strong>（本课精神：一切设计皆可问"为什么"）："每个位置都算 loss"只是设计空间中的一种选择。
+近年工作在挑战它：Rho-1（arXiv:2404.07965）发现只在"有用的" token 上算 loss 反而更好；
+Multi-Token Prediction（arXiv:2404.19737）让每个位置一次预测后面 n 个 token。
+——这类问题，就是问题表欢迎的问题。</p>
+<hr />
+<h2>13. 速查表</h2>
+<table>
+<thead>
+<tr>
+<th>代码</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x.shape</code> / <code>x.size(0)</code></td>
+<td>形状 / 第 0 维大小</td>
+</tr>
+<tr>
+<td><code>B, T, C = x.shape</code></td>
+<td>形状拆包</td>
+</tr>
+<tr>
+<td><code>x.view(B, T, -1)</code></td>
+<td>重塑，<code>-1</code> 自动推断</td>
+</tr>
+<tr>
+<td><code>x[:, -1, :]</code></td>
+<td>每个 batch 的最后一个位置</td>
+</tr>
+<tr>
+<td><code>x[..., :d]</code></td>
+<td>最后一维的前 d 个</td>
+</tr>
+<tr>
+<td><code>x[None]</code></td>
+<td>最前面加一维（广播用）</td>
+</tr>
+<tr>
+<td><code>torch.cat([a, b], dim=1)</code></td>
+<td>沿维度 1 拼接</td>
+</tr>
+<tr>
+<td><code>a * b</code></td>
+<td>逐元素乘（可广播）</td>
+</tr>
+<tr>
+<td><code>a @ b</code></td>
+<td>矩阵乘</td>
+</tr>
+<tr>
+<td><code>F.softmax(x, dim=-1)</code></td>
+<td>最后一维归一成概率</td>
+</tr>
+<tr>
+<td><code>x.argmax(-1)</code></td>
+<td>最后一维最大值的下标</td>
+</tr>
+<tr>
+<td><code>x.transpose(1, 2)</code></td>
+<td>交换维度 1、2（视图！）</td>
+</tr>
+<tr>
+<td><code>x.contiguous()</code></td>
+<td>让内存重新连续（view 前常需要）</td>
+</tr>
+<tr>
+<td><code>x.clone()</code></td>
+<td>真拷贝（切片只是视图）</td>
+</tr>
+<tr>
+<td><code>p.numel()</code></td>
+<td>元素个数</td>
+</tr>
+<tr>
+<td><code>model.eval()</code> / <code>model.train()</code></td>
+<td>关/开 dropout 等训练态</td>
+</tr>
+<tr>
+<td><code>with torch.no_grad():</code></td>
+<td>块内不记梯度（推理省内存）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>本手册配合课程材料使用；发现错误或讲不清的地方，带到课程群或周日 Hackathon——顺便，那可能就是一个好问题。</em></p>
+</main>
+<footer class="site"><div class="wrap">从零构建智能模型 · 苏宁 · 丘成桐数学科学中心</div></footer>
+</body>
+</html>

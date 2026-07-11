@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第一周作业 · 从零构建智能模型</title>
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2382318E'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white' font-family='sans-serif'%3E智%3C/text%3E%3C/svg%3E">
+</head>
+<body class="doc">
+<nav class="docnav"><div class="wrap"><a href="../index.html">← 从零构建智能模型</a></div></nav>
+<main class="prose">
+<h1>第一周作业</h1>
+<blockquote>
+<p>有问题：先把报错/疑问原文贴给你的 AI 助手 → 解决不了发课程群 → 周日现场有教师和助教兜底。</p>
+</blockquote>
+<h2>1. 搭建：你自己的沙盒工作环境（本周内）</h2>
+<p>材料：《环境搭建指引.md》+《sandbox-setup-brief.md》（已随本作业发放）。</p>
+<table>
+<thead>
+<tr>
+<th>档位</th>
+<th>完成标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>基础</strong></td>
+<td>编辑器（VS Code/Cursor）+ Claude Code 接通任一后端（Claude / DeepSeek / GLM），完成下面的破冰任务（见 §2）</td>
+</tr>
+<tr>
+<td><strong>完整</strong></td>
+<td>照指引装好 Podman 与 Mathematica，建好沙盒；在沙盒里让 agent 用 wolframscript 验证一个积分、写进 README、git commit</td>
+</tr>
+</tbody>
+</table>
+<p>需要 sudo 的安装步骤自己动手（照指引敲），其余尽管让 AI 代劳。</p>
+<blockquote>
+<p>顺手装上 <strong>Claude Code LaTeX</strong> 插件（by nuriyev）——这门课的笔记、公式全用 LaTeX，有它在 Claude Code 里写／看公式会方便很多。</p>
+</blockquote>
+<h2>2. 破冰：让 AI 带你写一次梯度下降</h2>
+<p>让你的 AI 助手带你写一个小脚本：<strong>用梯度下降拟合一条抛物线 y = ax² + bx + c</strong>，画出拟合结果和 loss 下降曲线。</p>
+<ul>
+<li>代码可以完全由 AI 写，但你要<strong>逐行追问，直到每一行都能讲给别人听</strong>。</li>
+<li>这就是整门课的工作方式：AI 动手，你监督到每一行。</li>
+</ul>
+<h2>3. 背诵：nano-gpt 的完整计算流（7/8 第二次课前）</h2>
+<p>打开课程版 LLM Visualization（<strong>地址课后发到课程群</strong>——课上演示的那个、学的是三字母语言的 2 头版本；公网 bbycroft.net/llm 是旧的 3 头排序版，结构相同但任务不同），把里面 nano-gpt 的整个计算过程<strong>背下来</strong>。</p>
+<ul>
+<li><strong>为什么要背</strong>：① 这是你们最基本的思考素材——Transformer 的这些设计，很多要素最终可能出现在真正的 AGI 里；背下来，才能在这个基础上思考还需要什么。② 这是理解 Transformer 的最短路径——以"背下来"为目标，你会自动识别出每个 building block。</li>
+<li><strong>自检标准</strong>：闭上眼睛，把整个可视化从 Embedding 到 Output 重放一遍，<strong>每个箭头都说得出流过去的东西是什么形状</strong>。</li>
+<li>背下来还有个用处：之后和任何人讨论模型，你能问"你改了哪里"，并有能力验证对方的说法。</li>
+</ul>
+<p><strong>随作业发放：<code>minimal_gpt/</code> 文件夹</strong>——课上那个模型的单文件 PyTorch 版 + 训练脚本 + 权重（和网页里是同一份，数值可逐一对上）。全程只需 CPU；<code>--trace</code> 模式是背诵自检的好工具，改它重训就是周日 ablation 的起点。用法见文件夹内 README。</p>
+<h2>4. 读代码 + 算力：读懂 minimal_gpt（第二次课后，周日 Hackathon 前）</h2>
+<p>第二次课讲了反向传播和算力账，这一项让你在代码里把它们坐实：</p>
+<ul>
+<li><strong>阅读 <code>minimal_gpt/</code> 的代码，逐行弄清楚</strong>——每一步在做什么、张量形状怎么走。</li>
+<li><strong>熟悉反向传播</strong>：对照第二次课，看代码里梯度是怎么一次反传就把所有参数的梯度都拿到的。</li>
+<li><strong>算力，实测 + 手算对照</strong>：</li>
+<li><strong>测</strong>：给前向 / 反向计时，量出实际计算耗时；</li>
+<li><strong>算</strong>：用第二次课的方法算出训练一步的计算复杂度（每 token 约 6N），再和实测对照。</li>
+</ul>
+<p><strong>完成时间：周日 Hackathon 之前。</strong></p>
+<h2>5. 周日 Hackathon 1（7/12 周日 10:00，地点：双清综合楼 C548）</h2>
+<ul>
+<li><strong>开场 30 分钟</strong>：现场认领——课上没提完的问题、临时想到的负向实验，当场提出、当场认领。</li>
+<li><strong>任务两件</strong>：
+  1. 跑通课程提供的<strong>演示版 scaling law</strong>（标准脚本，跑起来就算完成）；
+  2. 做你认领的<strong>负向 ablation</strong>（去掉 Transformer 的某个设计），<strong>和你自己跑出的对照曲线比</strong>。</li>
+<li>1–4 人组队，GPU 预算共享；<strong>做完可走</strong>。</li>
+<li><strong>汇报</strong>：下周一（7/13）课上，每组 2 分钟——<strong>猜想一句话、曲线上屏、结论一句话</strong>。会被追问：对照实验设计严谨吗？</li>
+</ul>
+</main>
+<footer class="site"><div class="wrap">从零构建智能模型 · 苏宁 · 丘成桐数学科学中心</div></footer>
+</body>
+</html>

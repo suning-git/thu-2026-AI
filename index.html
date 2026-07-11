@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>从零构建智能模型</title>
+<meta name="description" content="为数学 / 物理背景的学生，从理解到实现大语言模型的最短路径。清华大学丘成桐数学科学中心。">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2382318E'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white' font-family='sans-serif'%3E智%3C/text%3E%3C/svg%3E">
+</head>
+<body class="home">
+
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">清华大学 · 丘成桐数学科学中心</div>
+    <h1>从零构建智能模型</h1>
+    <p class="lede">为数学 / 物理背景的学生，提供一条从<strong>理解</strong>到<strong>实现</strong>大语言模型的最短路径——基于一个完整的训练框架，从头理解并训练一个能读中英文的模型。</p>
+    <p class="by">任课教师 · <b>苏宁</b>　丘成桐数学科学中心助理教授，研究非微扰场论与人工智能。</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="facts">
+      <div><dt>学时</dt><dd>32 学时</dd></div>
+      <div><dt>时间</dt><dd>7/6–7/31<br><span class="muted" style="font-weight:400">9:50–12:15</span></dd></div>
+      <div><dt>地点</dt><dd>双清 A 座 6 层 C654</dd></div>
+      <div><dt>前置</dt><dd>线代 · 微积分 · 群论<br><span class="muted" style="font-weight:400">+ 基本编程经验</span></dd></div>
+      <div><dt>算力</dt><dd>每人约 2000 元<br><span class="muted" style="font-weight:400">GPU 机时</span></dd></div>
+      <div><dt>考核</dt><dd>实操产出<br><span class="muted" style="font-weight:400">不设考试</span></dd></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>课程<span class="accent">目标</span></h2>
+    <p class="muted">课程结束时，你应当能<strong>从头训练一个真实的语言模型</strong>，读懂它的每一步，并具备改进架构、探索 scaling law 所需的工程能力。课程彻底动手，每个概念都落到能跑的代码上；三次 Hackathon 让你完整走一遍<strong>想法 → 实现 → 实验 → 读曲线 → 下结论</strong>，用 scaling law 做客观检验。<strong>鼓励组队</strong>——1–4 人一组、共享算力，把一个项目一起做完。</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="num">大纲</span>课程内容</h2>
+    <div class="outline">
+      <div class="item">
+        <h3>一 · 预训练</h3>
+        <p class="muted" style="margin:0">理解并从头训练一个大语言模型。</p>
+        <ul>
+          <li>Transformer：MLP / attention / residual stream / RoPE / tokenizer</li>
+          <li>训练基础：loss / 反向传播 / optimizer / 自回归范式</li>
+          <li>训练工程：PyTorch / 数据管线 / 分布式（FSDP）/ 算子</li>
+          <li>Scaling law：推导 · 实验设计 · 实测与拟合</li>
+        </ul>
+      </div>
+      <div class="item">
+        <h3>二 · 后训练</h3>
+        <p class="muted" style="margin:0">从预训练模型到可用的助手。</p>
+        <ul>
+          <li>SFT（监督微调）+ LoRA</li>
+          <li>强化学习</li>
+        </ul>
+      </div>
+      <div class="item">
+        <h3>三 · 多模态与前沿</h3>
+        <p class="muted" style="margin:0">当前 AI 研究的前沿方向与开放问题。</p>
+        <ul>
+          <li>多模态：动作模型 / 视频 / Diffusion</li>
+          <li>多模态理解与生成的统一、loop model 等</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="num">资源</span>课件与材料</h2>
+
+    <p class="kicker" style="margin-top:6px">讲义 · Slides</p>
+    <div class="cards">
+      <a class="card" href="slides/lesson-1.html">
+        <span class="tag">第一课</span><h3>Transformer 架构与推理</h3>
+        <p>Decoder-only 的结构规则：attention / MLP / 残差 / softmax / 推理与采样。</p>
+      </a>
+      <a class="card" href="slides/lesson-2.html">
+        <span class="tag">第二课</span><h3>训练：学会说 ABC</h3>
+        <p>loss 的博弈、反向传播、optimizer、算力账与 Chinchilla。</p>
+      </a>
+      <a class="card" href="slides/lesson-3.html">
+        <span class="tag">第三课</span><h3>真实训练 · RoPE · Scaling Law</h3>
+        <p>相对位置编码的群论、真规模训练、规模定律的推导与实测。</p>
+      </a>
+    </div>
+
+    <p class="kicker" style="margin-top:30px">动手 · Hands-on</p>
+    <div class="cards">
+      <a class="card" href="https://suning-git.github.io/llm-viz/" target="_blank" rel="noopener">
+        <span class="tag">交互 · 3D</span><h3>LLM 3D 可视化</h3>
+        <p>在浏览器里逐站看一个真实 nano-GPT 跑推理。含本机可跑的同款模型 <code>minimal_gpt</code>。</p>
+      </a>
+    </div>
+
+    <p class="kicker" style="margin-top:30px">作业与资料 · Homework &amp; Resources</p>
+    <div class="cards">
+      <a class="card" href="resources/homework-week1.html">
+        <span class="tag">作业</span><h3>第一周作业</h3>
+        <p>搭沙盒 · 拟合抛物线 · 背下计算流 · 读懂 minimal_gpt · Hackathon 1。</p>
+      </a>
+      <a class="card" href="resources/setup.html">
+        <span class="tag">指引</span><h3>沙盒与 Claude Code 搭建</h3>
+        <p>在自己电脑上搭一遍课上那套工作环境：编辑器 + Claude Code + Podman 沙盒 + Mathematica。</p>
+      </a>
+      <a class="card" href="resources/reading-guide.html">
+        <span class="tag">手册</span><h3>Python 与 PyTorch 读码手册</h3>
+        <p>读懂训练代码所需的最小 Python / PyTorch 知识，按“能读代码”为目标组织。</p>
+      </a>
+      <a class="card" href="resources/sandbox.html">
+        <span class="tag">简报</span><h3>沙盒环境简报</h3>
+        <p>给 AI agent 读的环境说明——放进项目目录，容器内外的 agent 一读就懂。</p>
+      </a>
+      <a class="card" href="downloads/第一周材料.zip">
+        <span class="tag">下载</span><h3>第一周材料包</h3>
+        <p>作业 + 搭建指引 + 读码手册 + <code>minimal_gpt/</code>（单文件模型 + 权重 + 训练脚本）+ 3 份 Mathematica 补充笔记本。</p>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="num">日程</span>课程表 &amp; Hackathon</h2>
+    <ul class="timeline">
+      <li><span class="date">7/6 一</span><span class="body"><span class="t">课 1 · 开场 + Transformer 架构</span></span></li>
+      <li><span class="date">7/8 三</span><span class="body"><span class="t">课 2 · 训练基础</span> <span class="k">loss / 反向传播 / optimizer</span></span></li>
+      <li><span class="date">7/10 五</span><span class="body"><span class="t">课 3 · 预训练全流程 + Scaling Law</span></span></li>
+      <li class="hk"><span class="date">7/12 日</span><span class="body"><span class="t">Hackathon 1</span> <span class="k">跑通 scaling law + 负向 ablation</span></span></li>
+      <li><span class="date">7/13 一</span><span class="body"><span class="t">课 4</span></span></li>
+      <li class="summit"><span class="date">7/15–18</span><span class="body"><span class="t">上海人工智能大会</span></span></li>
+      <li><span class="date">7/20 一</span><span class="body"><span class="t">课 5</span></span></li>
+      <li><span class="date">7/22 三</span><span class="body"><span class="t">课 6</span></span></li>
+      <li><span class="date">7/24 五</span><span class="body"><span class="t">课 7</span></span></li>
+      <li class="hk"><span class="date">7/26 日</span><span class="body"><span class="t">Hackathon 2</span> <span class="k">Parameter golf</span></span></li>
+      <li><span class="date">7/27 一</span><span class="body"><span class="t">课 8</span></span></li>
+      <li><span class="date">7/29 三</span><span class="body"><span class="t">课 9</span></span></li>
+      <li class="hk"><span class="date">7/31 五</span><span class="body"><span class="t">Hackathon 3</span> <span class="k">开放研究</span></span></li>
+    </ul>
+  </div>
+</section>
+
+<footer class="site">
+  <div class="wrap">
+    从零构建智能模型 · 苏宁 · 清华大学丘成桐数学科学中心 ·
+    以实操产出为考核（训练报告 / scaling law 实验报告 / Hackathon 项目报告）。
+  </div>
+</footer>
+
+</body>
+</html>

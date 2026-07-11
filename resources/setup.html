@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>沙盒与 Claude Code 搭建指引 · 从零构建智能模型</title>
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2382318E'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white' font-family='sans-serif'%3E智%3C/text%3E%3C/svg%3E">
+</head>
+<body class="doc">
+<nav class="docnav"><div class="wrap"><a href="../index.html">← 从零构建智能模型</a></div></nav>
+<main class="prose">
+<h1>沙盒与 Claude Code 搭建指引</h1>
+<blockquote>
+<p>课上演示的那套工作环境，本指引教你在自己电脑上搭一遍。
+<strong>需要 sudo 的步骤（装软件）自己动手，照着下面敲；不需要 sudo 的（写脚本、build 镜像、排错）尽管让你的 AI 助手代劳。</strong> 遇到问题先把报错原文贴给 AI，再问同学/助教。
+本指南默认你的网络能正常访问 GitHub、npm 等站点；网络有困难的同学请咨询同学或助教。</p>
+</blockquote>
+<h2>0. 为什么要沙盒</h2>
+<p>让 AI agent 真正提效的用法，是<strong>放手让它干活</strong>：装依赖、改文件、跑实验、自己调试。但在你自己的系统里放开手脚是危险的——它一条命令走错，你的系统就没了。</p>
+<p>解法：<strong>给它一个容器当沙盒，容器的边界就是权限的边界</strong>——在容器里它想干什么干什么（我们会直接打开"跳过所有权限确认"模式），折腾坏了就把容器扔掉重来。真正要保护的产物（代码）放在挂载目录里，用 git 管理。</p>
+<h2>1. 两档任务</h2>
+<table>
+<thead>
+<tr>
+<th>档位</th>
+<th>完成标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>基础</strong></td>
+<td>装好编辑器 + Claude Code，接通一个后端，用它完成破冰任务（梯度下降拟合抛物线，逐行追问到全懂）</td>
+</tr>
+<tr>
+<td><strong>完整</strong></td>
+<td>建好 Podman 沙盒（含 <strong>Mathematica 挂载，必做</strong>）；在沙盒里让 agent 完成一件小事并 git commit</td>
+</tr>
+</tbody>
+</table>
+<h2>2. 准备 Linux 环境</h2>
+<ul>
+<li><strong>Linux</strong>：直接下一步。</li>
+<li><strong>Windows</strong>：装 WSL2（管理员 PowerShell）：<code>wsl --install -d Ubuntu-24.04</code>，重启后进入 Ubuntu；<strong>之后所有命令都在 WSL 的 Ubuntu 终端里执行</strong>。</li>
+<li><strong>macOS</strong>：<code>brew install podman &amp;&amp; podman machine init &amp;&amp; podman machine start</code>，后续步骤相同。</li>
+</ul>
+<h2>3. 编辑器 + Claude Code + 后端（基础档）</h2>
+<ol>
+<li><strong>装一个带集成终端的编辑器</strong>：VS Code 或 Cursor 都行（Windows 同学：编辑器装 Windows 版，终端连 WSL）。装这几个插件：
+   - <strong>Claude Code</strong>（Anthropic 官方插件——装了它就不必单独装命令行版）
+   - <strong>Dev Containers</strong>（容器化开发用；⚠ 这条路用<strong>微软 VS Code</strong>，Cursor 的同名 fork 与 podman 不兼容）
+   - <strong>Git Graph</strong>（可视化提交历史）
+   - <strong>Remote - SSH</strong>（连远程机器才需要）</li>
+<li><strong>（可选）命令行版 Claude Code</strong>——想在纯终端里用才装，用插件的同学跳过：</li>
+</ol>
+<p><code>bash
+   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+   sudo apt-get install -y nodejs git python3 python3-pip
+   sudo npm install -g @anthropic-ai/claude-code</code></p>
+<ol start="3">
+<li>
+<p><strong>接通一个后端</strong>（三选一）：
+   - <strong>Claude 官方</strong>（需订阅，国际支付）：启动 Claude Code，按提示登录。
+   - <strong>DeepSeek</strong>（人民币）：照官方指南 → https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code
+   - <strong>智谱 GLM</strong>（人民币，Coding Plan）：照官方指南 → https://docs.z.ai/scenario-example/develop-tools/claude</p>
+</li>
+<li>
+<p><strong>基础档验收</strong>：用 Claude Code（插件或终端）完成破冰任务。</p>
+</li>
+</ol>
+<h2>4. 装 Podman（需要 sudo，手动）</h2>
+<pre><code class="language-bash">sudo apt update
+sudo apt install -y podman uidmap slirp4netns fuse-overlayfs git
+podman run --rm docker.io/library/hello-world     # 验证：能拉镜像、能跑
+</code></pre>
+<blockquote>
+<p>为什么用 rootless Podman：容器里的"root"经映射只是你的普通用户——agent 在容器里怎么折腾，落到你系统上都是无特权的。这是"放心全开权限"的根据。</p>
+</blockquote>
+<h2>5. 装 Mathematica（必做，需要 sudo，手动）</h2>
+<ul>
+<li>从学校正版软件渠道装好 Mathematica 并激活（自行获取；装到默认位置 <code>/usr/local/Wolfram</code>）。</li>
+<li>沙盒<strong>不重装、不重新激活</strong>——下一步的脚本会把宿主安装<strong>只读</strong>挂进容器。原理：Wolfram 授权按机器 ID 验证，机器 ID 来自 <code>/etc/machine-id</code>，所以要把它也挂进去，容器里的授权才和宿主一致。</li>
+<li>为什么必做：科研工作流里"读文献 → 符号验证"这一环靠它——课上演示的那个循环。</li>
+</ul>
+<h2>6. 构建镜像 + 安装启动脚本（不需要 sudo，可让 agent 代劳）</h2>
+<p><code>~/Containerfile</code>：</p>
+<pre><code class="language-dockerfile">FROM docker.io/library/ubuntu:24.04
+RUN apt-get update &amp;&amp; apt-get install -y --no-install-recommends \
+        ca-certificates curl git python3 python3-pip build-essential \
+    &amp;&amp; rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &amp;&amp; apt-get install -y nodejs
+RUN npm install -g @anthropic-ai/claude-code
+WORKDIR /work
+</code></pre>
+<pre><code class="language-bash">podman build -t agent-base -f ~/Containerfile ~
+</code></pre>
+<p><code>~/bin/task-sandbox</code>（<code>chmod +x</code>，确保 <code>~/bin</code> 在 PATH；<code>&lt;版本&gt;</code> 换成你机器上 <code>ls /usr/local/Wolfram/Wolfram/</code> 看到的版本号）：</p>
+<pre><code class="language-bash">#!/usr/bin/env bash
+set -euo pipefail
+SRC=&quot;$(realpath &quot;${1:?用法: task-sandbox &lt;项目目录&gt; [镜像]}&quot;)&quot;
+IMG=&quot;${2:-agent-base}&quot;
+podman run --rm -it \
+  -v &quot;$SRC&quot;:/work:rw \
+  -v claude-cfg:/root/.claude \
+  -v /usr/local/Wolfram:/usr/local/Wolfram:ro \
+  -v /etc/machine-id:/etc/machine-id:ro \
+  -v &quot;$HOME/.Wolfram/Licensing/mathpass&quot;:/root/.Wolfram/Licensing/mathpass:ro \
+  -e WOLFRAM_EXEC=/usr/local/Wolfram/Wolfram/&lt;版本&gt;/Executables \
+  -w /work \
+  &quot;$IMG&quot; bash
+</code></pre>
+<h2>7. 进沙盒干活（完整档）</h2>
+<pre><code class="language-bash"># 编辑器打开项目目录；集成终端里：
+task-sandbox ~/projects/你的项目
+# —— 现在在容器里 ——
+IS_SANDBOX=1 claude --dangerously-skip-permissions
+</code></pre>
+<ul>
+<li><code>--dangerously-skip-permissions</code>：agent 的动作不再逐条确认。<strong>只在容器里这么用</strong>——篱笆是容器，不是你的克制。</li>
+<li><code>IS_SANDBOX=1</code>：容器内是 root，Claude Code 默认拒绝 root 下开全权限；这个官方变量声明"我在沙盒里"。</li>
+<li>agent 改的文件在编辑器里<strong>实时可见</strong>（宿主和容器看同一批文件）；退出容器即焚，项目目录里的产物保留；<strong>git commit 勤一点</strong>。</li>
+<li>Claude 登录态存 <code>claude-cfg</code> 卷，换容器不用重登。</li>
+<li>把随发的 <code>sandbox-setup-brief.md</code> 放进项目目录：<strong>沙盒内外的 agent 读它就能秒懂环境</strong>。</li>
+<li>想在 IDE 里直接容器内开发：让你的 agent 按简报 §2B 给项目配 <code>.devcontainer</code>，用<strong>微软 VS Code</strong> 的 Dev Containers 打开（Rebuild and Reopen in Container）。</li>
+<li><strong>完整档验收</strong>：沙盒里让 agent 用 <code>wolframscript</code> 验证一个积分（如 <code>Integrate[Sin[x]^2,x]</code>），把结果写进 README，<code>git commit</code>。</li>
+</ul>
+<h2>8. 语音输入（推荐）</h2>
+<p>和 agent 的大量交流，用嘴比用手快。推荐 <strong>OpenTypeless</strong>（开源，自行搜索安装）或付费版 <strong>Typeless</strong>。装好后对着输入框说话——你会回不去的。</p>
+<h2>9. 安全清单（容器不替你挡的事）</h2>
+<ol>
+<li><strong>只挂任务需要的目录</strong>。容器保护你的系统，<strong>不保护你主动喂进去的数据</strong>——挂进去的目录 agent 就能改能删，靠 git 兜底。</li>
+<li><strong>别把私钥、密码、token 放进挂载目录</strong>（<code>~/.ssh</code> 绝不要挂）。</li>
+<li>只想让它读的东西，挂载加 <code>:ro</code>。</li>
+<li>想彻底断网跑：起容器时加 <code>--network none</code>。</li>
+</ol>
+<h2>10. 常见坑速查</h2>
+<table>
+<thead>
+<tr>
+<th>症状</th>
+<th>处置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WSL2 里 podman 报 systemd/cgroup 错</td>
+<td><code>/etc/wsl.conf</code> 加 <code>[boot]</code> <code>systemd=true</code>；PowerShell <code>wsl --shutdown</code> 后重进</td>
+</tr>
+<tr>
+<td>拉镜像 / npm / pip 慢</td>
+<td>换国内源：TUNA（apt、pip）、npmmirror（npm）——让你的 agent 代劳</td>
+</tr>
+<tr>
+<td>容器里 Mathematica 报"未激活"</td>
+<td>三条挂载少了 <code>/etc/machine-id</code>（见 §5 原理）</td>
+</tr>
+<tr>
+<td>claude 每次要重新登录</td>
+<td>起容器时漏了 <code>-v claude-cfg:/root/.claude</code></td>
+</tr>
+<tr>
+<td>容器里 root 却不能 cd 挂载目录</td>
+<td>查 <code>~/.config/containers/containers.conf</code> 是否设过全局 <code>userns</code>——删掉</td>
+</tr>
+</tbody>
+</table>
+</main>
+<footer class="site"><div class="wrap">从零构建智能模型 · 苏宁 · 丘成桐数学科学中心</div></footer>
+</body>
+</html>

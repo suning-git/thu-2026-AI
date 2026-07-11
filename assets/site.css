@@ -1,0 +1,136 @@
+/* 从零构建智能模型 — 课程站样式（对齐讲义 deck 调色板） */
+
+:root{
+  --bg:#fbfaf7;        /* 暖白纸底 */
+  --ink:#1b1b1f;       /* 正文 */
+  --dim:#6b6b74;       /* 次要 */
+  --accent:#82318E;    /* 讲义紫 */
+  --accent-wash:#f6eefb;
+  --panel:#f1f0ec;     /* 浅色块 */
+  --line:#d8d5cc;      /* 边框 */
+  --code-bg:#1b1b22;   /* 终端/代码块底 */
+  --code-ink:#e8e8ec;
+  --sans:"Noto Sans CJK SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Consolas,Menlo,monospace;
+  --maxw:960px;
+}
+
+*{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:var(--sans);line-height:1.65;
+  font-size:17px;-webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent);text-decoration:none;}
+a:hover{text-decoration:underline;}
+img{max-width:100%;}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;}
+
+/* ── kicker（讲义同款：紫、宽字距）── */
+.kicker{
+  font-size:.8rem;letter-spacing:.32em;color:var(--accent);
+  font-weight:700;text-transform:uppercase;margin:0 0 14px;
+}
+
+/* ── hero ── */
+.hero{padding:64px 0 40px;border-bottom:1px solid var(--line);}
+.hero h1{font-size:2.6rem;line-height:1.15;margin:0 0 14px;letter-spacing:-.01em;}
+.hero .lede{font-size:1.18rem;color:var(--ink);max-width:44em;margin:0 0 18px;}
+.hero .by{color:var(--dim);font-size:.98rem;}
+.hero .by b{color:var(--ink);font-weight:600;}
+
+/* ── section ── */
+section{padding:44px 0;border-bottom:1px solid var(--line);}
+section:last-of-type{border-bottom:0;}
+h2{font-size:1.5rem;margin:0 0 20px;letter-spacing:-.01em;}
+h2 .num{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:.5em;}
+h3{font-size:1.12rem;margin:0 0 6px;}
+p{margin:0 0 14px;}
+.muted{color:var(--dim);}
+
+/* ── 课程信息条 ── */
+.facts{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+}
+.facts>div{background:var(--bg);padding:16px 18px;}
+.facts dt{font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:5px;}
+.facts dd{margin:0;font-size:1.02rem;font-weight:600;}
+
+/* ── 大纲卡 ── */
+.outline{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;}
+.outline .item{border:1px solid var(--line);border-radius:12px;padding:20px;background:#fff;}
+.outline .item h3{color:var(--accent);}
+.outline .item ul{margin:8px 0 0;padding-left:1.1em;color:var(--dim);font-size:.96rem;}
+.outline .item li{margin:3px 0;}
+
+/* ── 资源卡片 ── */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;}
+.card{
+  display:block;border:1px solid var(--line);border-radius:12px;padding:20px 22px;
+  background:#fff;color:inherit;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;
+}
+a.card:hover{text-decoration:none;transform:translateY(-2px);
+  box-shadow:0 6px 22px rgba(130,49,142,.10);border-color:var(--accent);}
+.card .tag{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700;}
+.card h3{margin:8px 0 6px;}
+.card p{margin:0;color:var(--dim);font-size:.94rem;}
+.card.soon{opacity:.62;}
+.card.soon .tag{color:var(--dim);}
+
+/* ── 时间线 ── */
+.timeline{position:relative;margin:0;padding:0;list-style:none;}
+.timeline:before{content:"";position:absolute;left:118px;top:6px;bottom:6px;width:2px;background:var(--line);}
+.timeline li{position:relative;display:grid;grid-template-columns:104px 1fr;gap:26px;padding:9px 0;align-items:baseline;}
+.timeline .date{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums;font-size:.92rem;white-space:nowrap;}
+.timeline .body{position:relative;}
+.timeline .body:before{content:"";position:absolute;left:-12px;top:.55em;width:9px;height:9px;border-radius:50%;
+  background:var(--bg);border:2px solid var(--line);transform:translateX(-50%);}
+.timeline .t{font-weight:600;}
+.timeline .k{font-size:.82rem;color:var(--dim);}
+.timeline li.hk .body:before{background:var(--accent);border-color:var(--accent);}
+.timeline li.hk .t{color:var(--accent);}
+.timeline li.summit .body:before{background:#fff;border-color:var(--accent);}
+.timeline li.summit .t{color:var(--dim);font-style:italic;}
+
+/* ── footer ── */
+footer.site{padding:36px 0 60px;color:var(--dim);font-size:.92rem;}
+footer.site a{color:var(--dim);text-decoration:underline;}
+
+/* ── 文档页（渲染后的 MD 资料）── */
+body.doc .docnav{border-bottom:1px solid var(--line);}
+body.doc .docnav .wrap{padding-top:16px;padding-bottom:16px;}
+body.doc .docnav a{font-size:.92rem;letter-spacing:.02em;}
+.prose{max-width:760px;margin:0 auto;padding:36px 24px 72px;}
+.prose h1{font-size:2rem;margin:0 0 18px;letter-spacing:-.01em;}
+.prose h2{font-size:1.4rem;margin:34px 0 12px;padding-top:8px;}
+.prose h3{font-size:1.1rem;margin:24px 0 8px;}
+.prose h1,.prose h2{border-bottom:1px solid var(--line);padding-bottom:.28em;}
+.prose ul,.prose ol{padding-left:1.4em;}
+.prose li{margin:5px 0;}
+.prose blockquote{margin:16px 0;padding:2px 18px;border-left:3px solid var(--accent);
+  background:var(--accent-wash);color:#4a2b52;border-radius:0 8px 8px 0;}
+.prose blockquote p:last-child{margin-bottom:8px;}
+.prose code{font-family:var(--mono);font-size:.9em;background:var(--panel);
+  padding:.12em .4em;border-radius:5px;}
+.prose pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;
+  padding:16px 18px;overflow-x:auto;font-size:.86rem;line-height:1.55;}
+.prose pre code{background:none;padding:0;color:inherit;font-size:inherit;}
+.prose table{border-collapse:collapse;width:100%;margin:18px 0;font-size:.95rem;display:block;overflow-x:auto;}
+.prose th,.prose td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top;}
+.prose th{background:var(--panel);}
+.prose tr:has(td strong:first-child){background:var(--accent-wash);}
+.prose a{text-decoration:underline;}
+.prose hr{border:0;border-top:1px solid var(--line);margin:28px 0;}
+
+/* ── 窄屏 ── */
+@media (max-width:640px){
+  body{font-size:16px;}
+  .facts{grid-template-columns:1fr;}
+  .hero{padding:44px 0 30px;}
+  .hero h1{font-size:2rem;}
+  .timeline:before{left:74px;}
+  .timeline li{grid-template-columns:64px 1fr;gap:20px;}
+  .timeline .body:before{left:-10px;}
+}
