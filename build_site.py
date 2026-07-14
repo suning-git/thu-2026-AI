@@ -56,6 +56,7 @@ DECKS = [
     ("第一课_slides_transformer.html", "lesson-1.html"),
     ("第二课_slides_training.html",    "lesson-2.html"),
     ("第三课_slides_真实训练.html",     "lesson-3.html"),
+    ("第四课_slides_多模态运动_公开版.html", "lesson-4.html"),
 ]
 
 ZIP = "第一周材料.zip"
