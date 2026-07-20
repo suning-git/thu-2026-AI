@@ -49,6 +49,7 @@ DOCS = [
     ("环境搭建指引.md",               "setup.html",          "沙盒与 Claude Code 搭建指引"),
     ("sandbox-setup-brief.md",        "sandbox.html",        "沙盒环境简报"),
     ("Python与PyTorch读码手册.md",    "reading-guide.html",  "Python 与 PyTorch 读码手册"),
+    ("vibe_coding_live_demo.md",      "vibe-coding-demo.html", "Vibe Coding 现场实录:从零到两个多模态项目"),
 ]
 
 # (源 deck, slides/ 下的文件名)

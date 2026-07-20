@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vibe Coding 现场实录:从零到两个多模态项目 · 从零构建智能模型</title>
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2382318E'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='white' font-family='sans-serif'%3E智%3C/text%3E%3C/svg%3E">
+</head>
+<body class="doc">
+<nav class="docnav"><div class="wrap"><a href="../index.html">← 从零构建智能模型</a></div></nav>
+<main class="prose">
+<h1>Vibe Coding 示范:从零搭沙盒,到 Text2Motion 和 Text2Audio</h1>
+<blockquote>
+<p>本文整理自一次现场 demo,完整展示如何用 AI(Claude Code)从<strong>零</strong>开始:
+先在宿主机上搭好隔离沙盒、拉代码、挂数据,再进沙盒配置权限,
+然后在 NanoInfra 框架上<strong>并行</strong>做出两个多模态项目——
+<strong>Text2Motion</strong>(文本→人体动作)和 <strong>Text2Audio</strong>(文本→音乐)。</p>
+<p>阅读方式:
+- <strong>👤 用户</strong> = 我实际发给 AI 的话(基本是原话,仅做了通顺处理)。
+  这些话我大多是<strong>语音输入</strong>的,所以偏口语、比较松散——这本身也说明一点:
+  vibe coding <strong>不需要字斟句酌地打字</strong>,把意思说清楚就行,剩下的交给 AI 去理解和执行。
+- <strong>🤖 AI</strong> = AI 在这一轮里做了什么的<strong>简要描述</strong>(不是原文)。
+- 💡 <strong>要点</strong> = 这一步体现的 vibe coding 技巧,供你模仿。</p>
+<p>⚠️ 说明:这是<strong>精简版</strong>记录。为聚焦人类指令,我省略了大量后台训练日志、任务通知和几次打断,
+只保留关键的对话轮次;两小时里实际的往来比这密集得多。</p>
+<p>核心心法先说在前面:<strong>把 AI 当成一个很强但需要你把关的工程师</strong>——
+你负责定方向、给约束、卡节奏、要证据;AI 负责调研、写码、跑实验、汇报。</p>
+</blockquote>
+<hr />
+<h2>🗺️ 整体时间线</h2>
+<p>整个 demo 分成两大块:<strong>先把环境准备好,再做项目</strong>。两个项目是<strong>并行</strong>的——
+Motion 做到第 6 轮(写完计划书)后,第 7 轮我让它放手执行;<strong>就在这一刻,我同时开了 Text2Audio 这个新会话</strong>。</p>
+<pre><code>【沙盒外 · 宿主机】                 【沙盒内 · 容器】
+① 建 dev container 沙盒
+② git clone nanoinfra 作为 repo 根
+③ 准备数据(动作/音频/SMPL 模型/文本) ──►  ④ 配置权限 hook + 验证 GPU / Mathematica
+                                          │
+                                          ├─【项目一 · Text2Motion】第 1–6 轮
+                                          │    调研 → 跑通样板 → 讨论设计 → 写计划书
+                                          │              │
+                                          │   第 7 轮起 ──┼──────────────────────┐
+                                          │   放手执行     │                      │
+                                          │  (M1–M4 端到端  │              【项目二 · Text2Audio】
+                                          │   + web + 打磨) │               第 1–6 轮(与左侧并行)
+                                          │   第 7–9 轮      │               调研 → 过拟合实验 → 试听
+                                          ▼                ▼                      ▼
+</code></pre>
+<blockquote>
+<p>说明:两个项目的<strong>训练分别放在两块 GPU</strong> 上(Motion 在 GPU 0,Audio 在 GPU 1),互不干扰。
+这也是为什么前面要先把"两块 5090 都能用"验证清楚。</p>
+</blockquote>
+<p><strong>真实节奏(相对第一条消息的时间偏移,约数):</strong></p>
+<table>
+<thead>
+<tr>
+<th>相对时间</th>
+<th>发生了什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>+0 min</td>
+<td>在宿主机上搭沙盒、拉代码、备数据</td>
+</tr>
+<tr>
+<td>+14 min</td>
+<td>进沙盒配权限、验 GPU / Mathematica</td>
+</tr>
+<tr>
+<td>+21 min</td>
+<td>Text2Motion 开工(第 1 轮)</td>
+</tr>
+<tr>
+<td>+66 min</td>
+<td>Motion 放手执行(第 7 轮)+ <strong>Text2Audio 同时开始</strong> ← 并行点</td>
+</tr>
+<tr>
+<td>~+110 min</td>
+<td>两个项目的<strong>现场互动基本收尾</strong>(最后一条人类消息在此前后)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>换句话说:<strong>现场动手的部分大约两小时</strong>(前 110 分钟左右),你在本文看到的所有对话都发生在这段;
+之后一个多小时是模型在后台自己训练,人是空闲的。
+所以"两小时做两个项目"能成立,很大程度上靠<strong>并行</strong>——一边等一个项目训练,一边推进另一个,
+而不是全程一直在敲指令。</p>
+</blockquote>
+<hr />
+<h1>第 0 阶段:准备环境(还没开始做项目)</h1>
+<blockquote>
+<p>这一阶段的目标:给 AI 一个<strong>能全权限、能用 GPU、有代码有数据</strong>的干净工作台。
+很多人忽略这步,直接让 AI 干活,结果环境不对、反复弹权限、数据找不到——欲速则不达。</p>
+</blockquote>
+<h2>0.1 沙盒外(宿主机):搭沙盒 + 拉代码 + 挂数据</h2>
+<h3>轮次 1 — 照参考规范搭 dev container 沙盒</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>你帮我建个 dev container 的沙盒,参考 https://suning-git.github.io/thu-2026-AI/resources/sandbox.html</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 抓取了参考页面的完整配置,然后<strong>探测宿主机的真实情况</strong>(Podman 5.7、已有的容器基础镜像、
+Wolfram 14.2 及其授权、两块 RTX 5090、以及 GPU 是走 CDI 直通),确认前置条件齐全后,
+生成了<strong>针对这台机器适配过</strong>的 <code>.devcontainer/devcontainer.json</code>(加了 GPU 挂载、把 Wolfram 加进 PATH),并校验了 JSON 合法性。</p>
+<p>💡 <strong>要点:</strong> 让 AI 搭环境时,<strong>给它一个权威的参考链接</strong>比口头描述可靠得多。
+注意 AI 没有照抄模板,而是先探测真实机器、按实际情况适配——这正是你想要的行为。</p>
+<h3>轮次 2 — 把 nanoinfra 拉成当前仓库的根</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>帮我 <code>git clone</code> 这个 repo:https://github.com/suning-git/nanoinfra,
+让这个 repo 的根就是我们当前的 repo 根。</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 发现当前目录非空(有刚建的 <code>.devcontainer/</code>),不能直接 <code>git clone .</code>;于是用
+"clone 到临时目录 → 把 <code>.git</code> 搬进项目根 → <code>git reset --hard</code> 铺开工作区"的迂回方式,
+让 nanoinfra 成为当前目录的 git 仓库,同时保住了未跟踪的 <code>.devcontainer/</code>,最后校验了 remote、分支、内容都正确。</p>
+<p>💡 <strong>要点:</strong> 你只需说清<strong>目标</strong>("repo 根 = 当前根"),遇到"目录非空不能直接 clone"这类小障碍,
+AI 会自己想出安全的迂回方案并<strong>逐步校验</strong>。</p>
+<h3>轮次 3 — 把要用的数据准备好</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>我下载了数据集在另一个文件夹里,你把它硬链接到当前的 <code>datasets</code> 里,我要在沙盒里用。
+(<code>.../nanoinfra/datasets/amass</code>、<code>.../humanml3d</code>)</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 先解释了<strong>为什么该用硬链接</strong>:沙盒只把当前 workspace 挂进容器,符号链接指到外面会断链,
+而硬链接在 workspace 里就是真实文件(共享 inode、不额外占空间);核实了同一文件系统、目标无冲突、
+<code>.gitignore</code> 会自动忽略后,用 <code>cp -al</code> 把 amass(26G)、humanml3d(117M)、以及追加的 <code>outputs/base_data</code>(12G)
+硬链接进来,并逐项验证 inode 共享、文件数一致、不会误提交大文件。</p>
+<p>💡 <strong>要点:</strong> 把"数据在哪、要在沙盒里用"讲清楚,AI 就能选对机制(硬链接 vs 符号链接)并解释原因。
+注意它操作几十 G 数据前<strong>每一步都先核查再执行</strong>,而不是盲干。</p>
+<blockquote>
+<p>📦 <strong>数据准备的全貌(一并放在这里说):</strong> 项目要用的数据不止上面两个。除了 AMASS / HumanML3D(动作),
+还有 <strong>SMPL-H 身体模型</strong>(<code>models/smplh</code>,Motion 做正向运动学要用)、<strong>音频数据</strong>(<code>downloads/song_describer</code>,Text2Audio 要用)、
+以及<strong>文本 fineweb</strong>(<code>outputs/base_data</code>)——都放进了沙盒对应目录。
+(说句实话:SMPL 模型和音频数据是我一开始漏了、后来才补进来的;这里一并归入"数据准备",因为它不是核心,只是把料备齐。)</p>
+</blockquote>
+<h2>0.2 沙盒内(容器):配置权限,让 AI 放手干活</h2>
+<h3>轮次 1 — 用 hook 自动批准所有权限</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>你现在在沙盒里面,帮我把你的授权用 hook 改一下,所有授权都自动批准。</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 先调用了 <code>/update-config</code> 配置技能以确保格式正确;检查现有 settings 后,<strong>先测试 hook 命令</strong>能输出合法的
+approve JSON,再写入项目级 <code>.claude/settings.local.json</code>(一个 matcher 为 <code>*</code> 的 <code>PreToolUse</code> hook,
+自动放行所有工具调用),并把它加进 <code>.gitignore</code>、校验 JSON。</p>
+<p>💡 <strong>要点:</strong> 配置类操作,AI 会用<strong>专门的技能</strong>保证格式正确,并把本地敏感配置写进 <code>.gitignore</code> 不污染仓库。
+⚠️ 注意:"自动批准所有权限"<strong>只适合你自己的隔离沙盒</strong>——在真实环境里,权限确认是保护你的,不要随便关掉。</p>
+<h3>轮次 2 — 重启后验证:权限、GPU、Mathematica</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>我已经重启了 Claude Code,你检查一下权限配置对不对?能不能用两块 5090?
+GPU 上有没有东西在跑?另外你能不能用 Mathematica?</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 连跑了若干命令都<strong>没再弹权限框</strong>(证明 hook 生效);确认两块 RTX 5090 都可见可用、当前空闲;
+并且不只看"装没装",而是<strong>实际跑了一个积分 + 数值计算</strong>确认 Wolfram Engine 14.2 的 license 真的能求值。</p>
+<p>💡 <strong>要点:</strong> 配好之后一定要<strong>验证</strong>。让 AI 真跑一条命令确认结果("实测而非假设"),
+环境检查里尤其重要——很多"装了但用不了"的坑就是这样提前发现的。</p>
+<hr />
+<h1>第 1 阶段:两个并行项目</h1>
+<blockquote>
+<p>环境就绪后,真正的开发开始。下面两个项目在时间上是<strong>交叠</strong>的(见前面的时间线),
+为了好读,这里分成两段各自完整呈现。</p>
+</blockquote>
+<h2>项目一:Text2Motion(文本 → 人体动作)· GPU 0</h2>
+<h3>轮次 1 — 先调研,别急着写代码</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>我想用 NanoInfra 这个程序包做一个 text2motion 项目。这个程序包是一个多模态训练框架,
+核心训练代码在 <code>core</code> 里,各模态在 <code>modalities</code> 里。Motion 的 tokenizer 还没实现,
+但 motion 数据我已经下载好了,在 <code>datasets</code> 里。
+第一步,你先熟悉一下这个程序包,然后看一下示范性的文本 pretrain 项目 <code>exemplars/text_pretrain</code>。
+<strong>先不要编程。</strong></p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 并行地浏览了目录结构,读了核心文档和关键源码(text 模态、tokenization、heads、GPT trunk、
+数据集格式等),最后用一段结构化总结讲清了 NanoInfra 的设计哲学("core 是零模态的纯机制层,
+模态是声明式插件")和一个模态是怎么"插进去"的。全程没写一行代码。</p>
+<p>💡 <strong>要点:</strong> 开局第一句就交代了<strong>框架结构 + 数据位置 + 当前缺什么</strong>,并明确要求"先不要编程"。
+让 AI 先建立全局理解,是后面一切正确的前提——不要一上来就让它写功能。</p>
+<h3>轮次 2 — 让 AI 先把样板跑通(冒烟测试)</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>你先把文本示范项目 <code>exemplars/text_pretrain</code> 的冒烟测试跑对。
+先用 uv 安装这个程序包,然后做 text pretrain 的冒烟测试。fineweb 数据在 <code>outputs/base_data</code>。</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 用 uv 建好虚拟环境并安装(后台任务),验证了 torch + CUDA 在 RTX 5090 上可用;
+训练出 tokenizer 工件;然后用一个极小模型 + 极少步数跑通了完整的
+"数据流 → 训练 → 评估 → 保存 checkpoint"链路,确认 loss 从随机水平开始下降。全绿。</p>
+<p>💡 <strong>要点:</strong> 在动手做<strong>新东西</strong>之前,先让 AI 把<strong>已有的样板</strong>端到端跑通。
+这一步验证了环境、数据、框架接口都正常——相当于给后面所有工作打好地基。</p>
+<h3>轮次 3 — 定好代码归属,然后先讨论设计</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>在 <code>projects</code> 下新建一个文件夹叫 <code>text2motion</code>,项目实现写在里面。
+motion 的 tokenizer 实现可以写在 <code>modalities</code> 里,但 orchestrator / 训练入口代码都放在 <code>projects</code> 下。
+然后我们先讨论 text2motion 该怎么实现。<strong>讨论结束前不要开始编程。</strong></p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 建好了空的项目目录,并先去核实一个影响设计的关键事实:数据集里到底有没有预处理好的动作特征。
+查完后把<strong>数据现状</strong>(只有原始 AMASS、缺 body model、配对可用率等)摆出来,作为设计讨论的约束前提。</p>
+<p>💡 <strong>要点:</strong> 明确<strong>代码放哪</strong>(模态实现 vs 项目入口分开),避免 AI 乱放文件。
+再次强调"先讨论后编程"——重大设计决策要由你拍板,不能让 AI 自己一路狂奔。</p>
+<h3>轮次 4 — 给出明确的技术设计,并埋一个"坑"让它验证</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>来讨论 tokenizer 的实现。第一步要设计一个 motion 的 tokenizer,要求:
+1. 这是一个 <strong>FSQ 式</strong>的 tokenizer,latent dimension 是 3。
+2. 做一个 <strong>139 维</strong>的表征(数据是 SMPL 格式,每个关节 3 自由度的 SO3):
+   (a) 前 132 维:22 个关节 × 6D 旋转;
+   (b) 之后是 root trajectory:X/Y 方向用差分量,Z 高度方向用绝对量;
+   (c) 最后 4 维:足接触(左右脚的脚跟和脚尖是否触地)。</p>
+<p>另外注意:<strong>AMASS 数据可能有 Y-up / Z-up 的问题</strong>,你需要验证一下重力是哪个方向,
+转换时别把这两个搞混了。你觉得怎么样?</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 没有凭记忆下结论,而是<strong>实测</strong>了 AMASS 数据的坐标轴:统计走路片段各轴的运动范围,
+确认了竖直轴几乎不动且恒在身高高度 → 判定 <strong>AMASS 是 Z-up</strong>,与用户"Z 用绝对量"的设计吻合;
+并提醒后续要全程留在原生 Z-up 坐标系,不要误用某些现成代码里的 Y-up 转换。</p>
+<p>💡 <strong>要点:</strong> 你给的是<strong>具体、可执行的技术规格</strong>,而不是"帮我做个动作 tokenizer"这种含糊需求。
+同时你主动指出了一个已知陷阱(坐标轴),并要求 AI <strong>用数据验证而不是凭记忆</strong>——这是避免 AI 幻觉的关键手段。</p>
+<h3>轮次 5 — 补充资源,确认三步计划</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>你这个设计没问题。SMPL 模型我已经下载好了,在 <code>models/smplh</code>。
+我们的计划是:1) 先用一个小规模数据集生成 139 维表征;2) 用它训练 motion tokenizer;
+3) 用 core 里默认的模型做 AR 训练。<strong>先不要编程。</strong></p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 检查了 <code>models/smplh</code> 的实际内容,确认是完整的 SMPL-H 模型,能做精确的正向运动学(FK),
+于是把"三步计划"落实成具体的模块划分和实现方式。</p>
+<p>💡 <strong>要点:</strong> 一旦有更好的资源(真实 body model)就及时告诉 AI,它会相应升级方案。
+你用"三步计划"给出了清晰的里程碑,AI 就能对齐节奏。</p>
+<h3>轮次 6 — 缩小范围试跑,并要求先写文档</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>第一个数据集你用 CMU 的,选很少几条数据做测试就行。
+root 的水平速度先用世界坐标系,以后也许做消融实验。其余都没问题。
+在开始 text2motion 之前,先帮我写两个文档:
+1. text2motion 项目计划书,放 <code>projects/text2motion</code>;
+2. NanoInfra 程序包的使用说明文档(你已经调研过代码了,我要用它同时做另一个项目)。</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 为保证文档准确,又补读了几个还没细看的框架扩展点(DataSource、Trainer、Evaluator、
+推理引擎等),然后写出两份文档:项目计划书 <code>projects/text2motion/PLAN.md</code>
+和 NanoInfra 使用指南 <code>docs/nanoinfra_guide.md</code>——都基于实读代码,不是凭记忆。</p>
+<p>💡 <strong>要点:</strong> "选很少几条数据"= 先用最小规模快速验证,别一上来就大训练烧时间。
+让 AI <strong>把调研成果沉淀成文档</strong>,既能复用(下一个项目 Text2Audio 就直接读这份 guide 起步),
+也能让你检查它的理解对不对。
+👉 顺带一提:仓库里那份 <code>docs/nanoinfra_guide.md</code> <strong>就是 AI 在这一轮写的</strong>——
+你完全可以让 AI 帮你产出可长期使用的项目文档。</p>
+<blockquote>
+<p><strong>⏸ 时间线在这里分岔</strong>
+写完计划书后,下一轮(第 7 轮)我让 Motion <strong>放手执行</strong>。
+<strong>就在这一刻,我同时开了一个新会话开始做 Text2Audio</strong>(见下方"项目二",它的第 1 轮 ≈ 与这里的第 7 轮同时)。
+之后 Motion(第 7–9 轮)和 Audio(第 1–6 轮)在两块 GPU 上<strong>并行推进</strong>。
+下面为了好读,仍然把两个项目各自成段——但请记住它们在时间上是交叠的。</p>
+</blockquote>
+<h3>轮次 7 — 放行执行(← 与 Text2Audio 同时开始)</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>现在可以开始执行这个项目,你可以用 GPU 0。</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 从 M1 到 M4 一路做完:写 SMPL-H FK 和 139 维特征提取,<strong>往返验证</strong>发现并修复了一个
+6D 旋转的列交错 bug(误差从 2.0 降到数值零);写 FSQ codec 并训练收敛;打通词表拼装和 AR 训练;
+最后跑通端到端推理(文本 → 生成动作 token → 解码 → 渲染)。四个里程碑全部达成。</p>
+<p>💡 <strong>要点:</strong> 前面几轮把设计、数据、文档都对齐了,这里一句"开始执行"AI 就能自主跑完一长串工作。
+<strong>充分的前期对齐 = 后期高质量的自动化。</strong></p>
+<h3>轮次 8 — 加可视化,让效果"看得见"</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>帮我做两个 web 服务,都放在 <code>projects/text2motion/web</code> 下:
+一个是 tokenizer 效果可视化(真实轨迹 vs 重建),
+一个是 inference web:推理服务,可以选指定文本,也可以自己输入文本。</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 写了自包含的 Flask 后端 + 纯 vanilla JS 的 3D 火柴人可视化(可拖拽、可播放)。
+起服务时发现重建质量不好——诊断出<strong>根因是 codec 只在 8 条数据上训过、泛化不了</strong>,
+于是主动做了一次适度放大训练,并把两个服务先起起来让用户看当前效果。</p>
+<p>💡 <strong>要点:</strong> 要求做<strong>可视化 / 交互界面</strong>,让抽象的模型效果变得可听可看可评判。
+注意 AI 在这里表现出的好习惯:遇到效果差,先<strong>定位根因</strong>(数据太少),而不是瞎调参。</p>
+<h3>轮次 9 — 发现问题,及时纠偏</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>你这个 codec 比之前还差。那你先把 codec 训好之后,再去跑 AR 模型吧?</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 承认是欠拟合,单独把 codec 训久(60k 步)后仍在 232mm 平台,进而判断
+<strong>不是步数问题,而是信息瓶颈</strong>(FSQ latent dim 3 = 9 bit/token、时间压缩太狠);
+于是在保持用户设定的 latent dim 不变的前提下,把时间下采样从 ×4 改成 ×2、加大编码器,
+MPJPE 降到 187mm,渲染确认局部姿态忠实,再继续 recache + AR,最后重启两个服务加载新模型。</p>
+<p>💡 <strong>要点:</strong> 你的一句纠偏("先把 codec 训好再跑 AR")就纠正了 AI 的执行顺序。
+好的 vibe coding 是<strong>持续在环</strong>:你盯着结果,发现不对就打断、给方向,而不是一次性甩需求然后不管。</p>
+<hr />
+<h2>项目二:Text2Audio(文本 → 音乐)· GPU 1</h2>
+<blockquote>
+<p>⏱ 本项目是一个<strong>独立的新会话</strong>,与上面 Text2Motion 的<strong>第 7 轮几乎同时开始</strong>,跑在另一块 GPU 上。
+它复用了同一套 NanoInfra 框架,以及 Motion 项目趟出来的经验和那份 <code>nanoinfra_guide.md</code>。</p>
+<p>🎓 <strong>一个诚实的说明:做这个 demo 之前,我完全没接触过音频处理。</strong> 下面的对话里,
+音频格式、mel 频谱、RVQ、token rate 这些概念,都是我<strong>现场一边问 AI 一边学</strong>的——
+你会看到我第 2 轮就在追问"RVQ 怎么实现、每秒多少 token"。这恰恰是想让你看到的:
+<strong>vibe coding 能带你进入一个自己原本不懂的领域</strong>。你不需要先成为音频专家,
+只要保持"先让 AI 讲清概念、我理解了再拍板"的节奏,就能在一个陌生方向上做出东西。
+前提是你得真的边做边学、把概念搞懂,而不是不懂装懂地放手——否则你无法判断 AI 做得对不对。</p>
+</blockquote>
+<h3>轮次 1 — 先调研数据和方案,提出具体问题</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>我想做一个音频的理解模型和生成模型,用的是 NanoInfra。
+你先读一下文档 <code>docs/nanoinfra_guide.md</code>,看这个包怎么设计的;再读一下示范项目 <code>exemplars/text_pretrain</code>。
+带标注的文本音频我已经下载好了,在 <code>downloads/song_describer</code>。
+之后我们讨论音频 tokenizer 怎么实现,你给我解释三点:
+1. 音频的格式大概是什么?2. 合理的 tokenizer 实现方式?3. 该用 VQ-VAE 还是 FSQ,目前主流是什么?
+<strong>讨论结束前不要编程。</strong></p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 读了 NanoInfra 指南和文本样板,并<strong>直接解码了实际的音频文件</strong>确认格式
+(MP3、48kHz、立体声、每条约 2 分钟、共约 25 小时),然后逐一回答了三个问题。</p>
+<p>💡 <strong>要点:</strong> 复用了项目一的开局套路:<strong>先读文档 + 先看样板 + 先验数据,再讨论,别编程</strong>。
+而且你把想让 AI 讲清的点<strong>编号列出来</strong>——问题越具体,回答越有用。
+(注意这里读的 <code>docs/nanoinfra_guide.md</code> 正是上一个项目让 AI 写的——<strong>文档在项目间复用了</strong>。)</p>
+<h3>轮次 2 — 追问关键概念</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>你能不能解释一下 RVQ 是怎么实现的?典型的 token rate 是多少?比如每秒多少个 token?</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 从单个 VQ 讲起,解释了 RVQ(残差向量量化)如何用多个小码本逐层逼近残差,
+以及每秒 token 数是怎么算出来的。</p>
+<p>💡 <strong>要点:</strong> 在拍板方案之前,先让 AI 把关键概念讲透。<strong>你要真的理解在做什么</strong>,
+才能做出好决策——vibe coding 不等于放弃理解。这一轮尤其能说明问题:我此前并不懂音频,
+RVQ 就是在这里现学的——<strong>进入陌生领域的门票,不是先去读完教科书,而是让 AI 边做边教你</strong>。</p>
+<h3>轮次 3 — 选定最简方案,追问落地细节</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>单码流(N=1,我建议的第一版)——我们先实现这个方案。具体应该怎么做?
+多少个词表?进入编码器的数据格式是什么样的?</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 先去读实际代码把整数(词表大小等)对准,发现 <strong>motion 已经把 FSQ 单码流这条路走通了</strong>,
+音频 v1 基本就是"把 motion codec 换个输入维度";并给出走 mel 频谱域(而非原始波形)的建议方案。</p>
+<p>💡 <strong>要点:</strong> 明确选择<strong>最简单的第一版</strong>(单码流),不追求一步到位。
+AI 也复用了姊妹项目的成果——这正是"先把样板/前一个项目跑通"的红利。</p>
+<h3>轮次 4 — 定义最小可验证的实验(过拟合)</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>control 模态你在 <code>projects/text2audio</code> 下单独实现一个就行,不一定要用 <code>modalities</code> 里的东西。
+第一步我觉得我们甚至不需要训练 text。先做 audio 的<strong>过拟合实验</strong>:
+文本和 audio 都进去,但 loss 只在 audio 上训;推理时用固定文本,看它能不能过拟合出正确的音频。你觉得呢?</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 完全赞同,并指出这正是验证整条管道接线是否正确的标准 sanity check;
+还帮用户把方案锐化了一下(自己实现 control 顺手消掉了一个词表设计上的两难)。</p>
+<p>💡 <strong>要点:</strong> 用<strong>过拟合一小撮样本</strong>作为第一个里程碑,是很稳的做法:
+答案已知(就是"记住"),记不住 = 接线有 bug,排查成本极低。<strong>先证明管道通,再谈规模。</strong></p>
+<h3>轮次 5 — 放行:写计划 + 做实验</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>行,你先在 <code>projects/text2audio</code> 写一个计划,然后就可以做 codec → AR 的过拟合实验。</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 读齐相关契约后写了 PLAN.md;解决了"venv 里没有 MP3 解码器"的依赖问题(引入自带 ffmpeg 的 PyAV);
+写了纯 torch 的音频前端(log-mel + Griffin-Lim)、FSQ codec、数据准备、control/audio 模态、
+orchestrator 和推理脚本;codec 和 AR 逐步冒烟后做完整过拟合。最终:
+<strong>自由生成 token 匹配率 99–100%</strong>,且<strong>条件矩阵完美对角</strong>(每个 caption 都能重现自己那条音频、不串)。</p>
+<p>💡 <strong>要点:</strong> AI 全程遵循"<strong>每写一块就先小规模 smoke test 抓 bug</strong>"的节奏,而不是写一大坨再一起调。
+遇到缺依赖(MP3 解码)选了<strong>最自包含</strong>的方案,不给环境添乱。</p>
+<h3>轮次 6 — 上手听效果</h3>
+<p><strong>👤 用户:</strong></p>
+<blockquote>
+<p>你现在在本机上起这两个服务,我来听一下。</p>
+</blockquote>
+<p><strong>🤖 AI:</strong> 在 GPU 1 上起了两个 Flask 服务:一个 Codec A/B 对比(原始 vs 重建),
+一个 Text→Audio 生成(输入文本或选预设 caption → 生成音频),都确认返回了完整音频,可以试听了。</p>
+<p>💡 <strong>要点:</strong> 生成类项目一定要<strong>回到人的感官去验收</strong>——数字指标好不等于听感好。
+让 AI 起个服务,你亲耳听,是最终的质量把关。</p>
+<hr />
+<h1>总结:这次 demo 里值得学的 Vibe Coding 习惯</h1>
+<p>从"搭环境 → 做项目"整条线横过来看,好的 vibe coding 有一套<strong>可复制的套路</strong>:</p>
+<ol start="0">
+<li>
+<p><strong>先把工作台准备好,再让 AI 干活。</strong> 搭沙盒、拉代码、挂数据、配权限、验 GPU——
+   这些"第 0 阶段"的功夫省不得。环境不对,后面全是返工。</p>
+</li>
+<li>
+<p><strong>先调研,后编程。</strong> 几乎每个项目的第一句都是"先熟悉框架/读文档/看数据,<strong>先不要编程</strong>"。
+   让 AI 先建立正确的全局理解,是后面一切的前提。</p>
+</li>
+<li>
+<p><strong>先把已有样板端到端跑通。</strong> 做新东西前,先让 AI 把 <code>exemplars/text_pretrain</code> 冒烟测试跑对,
+   地基稳了再盖楼。</p>
+</li>
+<li>
+<p><strong>重大设计先讨论,由你拍板。</strong> "讨论结束前不要开始编程"出现了很多次——
+   架构和技术选型的决定权始终在你手里。</p>
+</li>
+<li>
+<p><strong>给具体、可执行的规格,而不是含糊愿望。</strong> "139 维 = 132(22×6D 旋转)+ 3(root)+ 4(足接触)"
+   这种精确需求,才能得到精确的实现。</p>
+</li>
+<li>
+<p><strong>要求实测,不许凭记忆。</strong> 坐标轴 Z-up/Y-up 让 AI 用数据验证;GPU/Mathematica 让它真跑一条命令确认——
+   这是压制 AI 幻觉最有效的手段。</p>
+</li>
+<li>
+<p><strong>从最小规模、最简方案起步。</strong> "选很少几条数据"、"单码流 N=1"、"先做过拟合实验"——
+   先用最低成本证明管道通,再谈放大。</p>
+</li>
+<li>
+<p><strong>持续在环,及时纠偏。</strong> 发现 codec 变差,一句"先把 codec 训好再跑 AR"就纠正了方向。
+   你盯结果、给反馈,AI 才不会跑偏。</p>
+</li>
+<li>
+<p><strong>让成果看得见/听得见。</strong> 每个项目都做了可视化 / 试听服务——
+   把抽象模型变成可评判的东西,才谈得上验收。</p>
+</li>
+<li>
+<p><strong>让 AI 沉淀可复用的文档。</strong> <code>nanoinfra_guide.md</code>、各项目的 <code>PLAN.md</code> 都是 AI 写的,
+   还在下一个项目里被直接复用。文档不是负担,是资产。</p>
+</li>
+<li>
+<p><strong>明确约束这些"边界条件"。</strong> 代码放哪、用哪块 GPU、数据在哪、哪些能自动批准——
+    这些交代清楚,AI 才不会乱来。</p>
+</li>
+</ol>
+<blockquote>
+<p>一句话:<strong>你定方向、给约束、卡节奏、要证据;AI 负责调研、写码、跑实验、汇报。</strong>
+Vibe coding 不是"甩个需求等结果",而是一场你始终在场的高效协作。</p>
+</blockquote>
+</main>
+<footer class="site"><div class="wrap">从零构建智能模型 · 苏宁 · 丘成桐数学科学中心</div></footer>
+</body>
+</html>
