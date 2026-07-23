@@ -134,3 +134,9 @@ body.doc .docnav a{font-size:.92rem;letter-spacing:.02em;}
   .timeline li{grid-template-columns:64px 1fr;gap:20px;}
   .timeline .body:before{left:-10px;}
 }
+
+/* 首页"怎么上手"步骤表 */
+.steps{border-collapse:collapse;width:100%;margin:14px 0 8px;font-size:.95rem;}
+.steps th,.steps td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top;}
+.steps th{color:var(--accent);font-size:.82rem;letter-spacing:.08em;white-space:nowrap;background:#fbfaf8;}
+.steps td:first-child{white-space:nowrap;font-weight:600;}

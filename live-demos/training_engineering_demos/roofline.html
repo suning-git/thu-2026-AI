@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Roofline:推理为什么撞带宽墙</title>
+<style>
+  body{margin:0;background:#fbfaf7;color:#1b1b1f;font-family:"Noto Sans CJK SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;}
+  #wrap{max-width:1080px;margin:0 auto;padding:16px 20px;}
+  h1{font-size:20px;margin:2px 0 4px;}
+  h1 .sub{font-size:13px;color:#6b6b74;font-weight:400;margin-left:8px;}
+  #layout{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;}
+  canvas{background:#fff;border:1px solid #e2dfd6;border-radius:8px;}
+  #panel{flex:1;min-width:300px;}
+  #expl{font-size:13.5px;line-height:1.55;background:#f4f2ec;border-radius:8px;padding:10px 12px;margin-bottom:12px;}
+  .ctl{margin:10px 0;font-size:13.5px;}
+  .ctl label{display:block;margin-bottom:3px;}
+  input[type=range]{width:100%;}
+  select{font-size:13.5px;padding:3px 6px;border-radius:6px;border:1px solid #d8d5cc;}
+  .val{font-family:ui-monospace,Consolas,monospace;color:#82318E;font-weight:700;}
+  .readout{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#1b1b22;color:#e8e8ec;border-radius:8px;padding:12px 14px;line-height:1.75;}
+  .readout .hot{color:#c9a0e0;font-weight:700;}
+  .readout .warn{color:#e0866b;font-weight:700;}
+  .readout .ok{color:#8ee59a;font-weight:700;}
+  #foot{margin-top:10px;font-size:12px;color:#a0a0a8;}
+</style>
+</head>
+<body>
+<div id="wrap">
+<h1>Roofline:推理为什么撞带宽墙<span class="sub">配套《训练工程讲义》§7.3</span></h1>
+<div id="layout">
+  <canvas id="cv" width="620" height="440"></canvas>
+  <div id="panel">
+    <div id="expl">
+      <b>算术强度</b>(横轴,FLOP/字节)= 一次计算做多少浮点运算 ÷ 搬多少字节。
+      硬件的<b>岭线</b> = 峰值算力 ÷ 显存带宽:算术强度低于它 → 瓶颈是<b>带宽</b>(斜坡);高于它 → 瓶颈是<b>算力</b>(平顶)。<br>
+      <b>decode 一步</b>(batch=B):算 ~2N·B FLOPs,读 ~2N 字节权重 → 算术强度 ≈ <b>B</b>。
+      单流 decode(B=1)算术强度≈1,<b>远在岭线左侧</b>——时间全花在把权重搬进计算单元,算力晾着。
+      这不是工程没做好,是问题的物理形态。加大 serving batch 把点推过岭线,才回到算力受限。
+    </div>
+    <div class="ctl">
+      <label>GPU</label>
+      <select id="gpu"></select>
+    </div>
+    <div class="ctl">
+      <label>serving batch B = <span class="val" id="bval"></span>  (decode 的算术强度 ≈ B)</label>
+      <input type="range" id="batch" min="0" max="3" step="0.03" value="0">
+    </div>
+    <div class="readout" id="readout"></div>
+    <div id="foot">对数-对数坐标。紫点 = 当前 batch 的 decode;灰点 = 训练/prefill(算术强度 = B·T,恒在平顶)。</div>
+  </div>
+</div>
+</div>
+<script>
+"use strict";
+// 稠密 bf16 峰值 (TFLOPS) 与显存带宽 (TB/s)
+const GPUS = {
+  "RTX 5090":    {flops: 209.5, bw: 1.79},
+  "A100 / A800": {flops: 312.0, bw: 2.0},
+  "H100 SXM":    {flops: 989.0, bw: 3.35},
+  "H20":         {flops: 148.0, bw: 4.0},
+};
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height, PAD = 54;
+const XMIN = Math.log10(0.3), XMAX = Math.log10(3000);   // 算术强度轴
+const YMIN = Math.log10(1),   YMAX = Math.log10(1200);   // TFLOPS 轴
+const px = lx => PAD + (lx - XMIN) / (XMAX - XMIN) * (W - PAD - 14);
+const py = ly => H - PAD - (ly - YMIN) / (YMAX - YMIN) * (H - PAD - 14);
+
+const sel = document.getElementById("gpu");
+Object.keys(GPUS).forEach(k => { const o = document.createElement("option"); o.value = k; o.textContent = k; sel.appendChild(o); });
+const slider = document.getElementById("batch");
+
+function draw() {
+  const g = GPUS[sel.value];
+  const ridge = g.flops / g.bw;                 // FLOP/byte,岭线算术强度
+  const B = Math.pow(10, +slider.value);        // 对数滑杆 0..3 → B 1..1000
+
+  ctx.clearRect(0, 0, W, H);
+  // 网格 + 刻度
+  ctx.font = "11px ui-monospace"; ctx.textAlign = "center";
+  for (let e = 0; e <= 3; e++) {
+    const x = px(e);
+    ctx.strokeStyle = "#f0eee7"; ctx.beginPath(); ctx.moveTo(x, py(YMIN)); ctx.lineTo(x, py(YMAX)); ctx.stroke();
+    ctx.fillStyle = "#9a9aa2"; ctx.fillText("10" + ["⁰", "¹", "²", "³"][e], x, H - PAD + 16);
+  }
+  ctx.textAlign = "right";
+  [1, 10, 100, 1000].forEach(v => {
+    const ly = Math.log10(v); if (ly < YMIN || ly > YMAX) return; const y = py(ly);
+    ctx.strokeStyle = "#f0eee7"; ctx.beginPath(); ctx.moveTo(px(XMIN), y); ctx.lineTo(px(XMAX), y); ctx.stroke();
+    ctx.fillStyle = "#9a9aa2"; ctx.fillText(v, PAD - 6, y + 4);
+  });
+  ctx.fillStyle = "#6b6b74"; ctx.textAlign = "center";
+  ctx.fillText("算术强度  (FLOP / 字节)", W / 2, H - 14);
+  ctx.save(); ctx.translate(15, H / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("达到算力 (TFLOPS)", 0, 0); ctx.restore();
+
+  // roofline: perf = min(peak, bw·AI)
+  ctx.strokeStyle = "#82318E"; ctx.lineWidth = 2.4; ctx.beginPath();
+  let first = true;
+  for (let lx = XMIN; lx <= XMAX; lx += 0.02) {
+    const perf = Math.min(g.flops, g.bw * Math.pow(10, lx));
+    const x = px(lx), y = py(Math.log10(perf));
+    if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // 岭线
+  const rx = px(Math.log10(ridge));
+  ctx.strokeStyle = "#c9c9cf"; ctx.setLineDash([4, 4]); ctx.beginPath();
+  ctx.moveTo(rx, py(YMIN)); ctx.lineTo(rx, py(Math.log10(g.flops))); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = "#6b6b74"; ctx.textAlign = "left";
+  ctx.fillText("岭线 " + ridge.toFixed(0), rx + 6, py(Math.log10(g.flops)) + 26);
+
+  // 训练/prefill 点(算术强度极大,恒在平顶)
+  const tx = px(Math.log10(2000)), ty = py(Math.log10(g.flops));
+  ctx.fillStyle = "#9a9aa2"; ctx.beginPath(); ctx.arc(tx, ty, 5, 0, 7); ctx.fill();
+  ctx.fillText("训练 / prefill", tx - 96, ty - 10);
+
+  // decode 点(算术强度 = B)
+  const perfB = Math.min(g.flops, g.bw * B);
+  const dx = px(Math.log10(Math.max(B, 0.3))), dy = py(Math.log10(perfB));
+  ctx.strokeStyle = "#82318E"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(dx, dy); ctx.lineTo(dx, py(YMIN)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = "#82318E"; ctx.beginPath(); ctx.arc(dx, dy, 6, 0, 7); ctx.fill();
+  ctx.fillText("decode", dx + 9, dy - 6);
+
+  // 读数
+  const Bshow = B < 10 ? B.toFixed(1) : Math.round(B);
+  const mfu = 100 * perfB / g.flops;
+  const bound = B < ridge ? '<span class="warn">带宽受限</span>' : '<span class="ok">算力受限</span>';
+  document.getElementById("bval").textContent = Bshow;
+  document.getElementById("readout").innerHTML =
+    `岭线 = 峰值 ${g.flops} TFLOPS / 带宽 ${g.bw} TB/s = <span class="hot">${ridge.toFixed(0)}</span> FLOP/字节<br>` +
+    `batch B = <span class="hot">${Bshow}</span>  →  decode 算术强度 ≈ B<br>` +
+    `状态: ${bound}  ·  达到 ${perfB.toFixed(0)} TFLOPS  ·  MFU ≈ <span class="hot">${mfu.toFixed(mfu < 1 ? 2 : 0)}%</span><br>` +
+    `越过岭线、回到算力受限需 batch ≳ <span class="hot">${Math.ceil(ridge)}</span>`;
+}
+
+sel.onchange = draw;
+slider.oninput = draw;
+sel.value = "RTX 5090";
+draw();
+</script>
+</body>
+</html>

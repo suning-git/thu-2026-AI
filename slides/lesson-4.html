@@ -756,5 +756,7 @@ ConvTranspose1d ×2    <span class="m">[B, 512, 64]</span>
   });
   show(i);
 </script>
+<div id="pgHint" style="position:fixed;right:18px;bottom:60px;z-index:99;font:500 14px/1.6 system-ui,sans-serif;color:#fff;background:rgba(27,27,31,.72);padding:6px 14px;border-radius:999px;pointer-events:none;transition:opacity .5s">← → 键翻页</div>
+<script>(function(){var h=document.getElementById('pgHint');try{if(localStorage.getItem('pgHintDone')){h.remove();return;}}catch(e){}function done(){try{localStorage.setItem('pgHintDone','1')}catch(e){}h.style.opacity=0;setTimeout(function(){h.remove()},600);window.removeEventListener('keydown',k);}function k(e){if(e.key==='ArrowRight'||e.key==='ArrowLeft'||e.key==='PageDown'||e.key==='PageUp'||e.key===' ')done();}window.addEventListener('keydown',k);setTimeout(done,15000);})();</script>
 </body>
 </html>

@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>优化器交互演示</title>
+<style>
+  body{margin:0;background:#fbfaf7;color:#1b1b1f;font-family:"Noto Sans CJK SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;}
+  #wrap{max-width:1180px;margin:0 auto;padding:14px 18px;}
+  h1{font-size:20px;margin:4px 0 10px 0;}
+  h1 .sub{font-size:13px;color:#6b6b74;font-weight:400;margin-left:10px;}
+  #tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;}
+  .tab{padding:6px 12px;border:1px solid #d8d5cc;border-radius:8px;cursor:pointer;font-size:14px;background:#fff;}
+  .tab.active{background:#82318E;color:#fff;border-color:#82318E;font-weight:700;}
+  #layout{display:flex;gap:14px;align-items:flex-start;}
+  #left{flex:0 0 auto;}
+  canvas{background:#fff;border:1px solid #e2dfd6;border-radius:8px;display:block;}
+  #chart{margin-top:8px;}
+  #panel{flex:1;min-width:300px;}
+  #expl{font-size:13.5px;line-height:1.55;background:#f4f2ec;border-radius:8px;padding:10px 12px;margin-bottom:10px;}
+  .ctlrow{margin:7px 0;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .ctlrow label{min-width:110px;}
+  input[type=range]{flex:1;min-width:120px;}
+  .val{font-family:ui-monospace,Consolas,monospace;color:#82318E;min-width:56px;text-align:right;}
+  button{padding:5px 12px;border:1px solid #d8d5cc;border-radius:7px;background:#fff;cursor:pointer;font-size:13.5px;}
+  button.primary{background:#82318E;color:#fff;border-color:#82318E;}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-family:ui-monospace,monospace;font-size:12.5px;color:#fff;}
+  .legend-item{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:4px 0;}
+  .dot{width:12px;height:12px;border-radius:50%;flex:0 0 auto;}
+  .status{font-family:ui-monospace,monospace;font-size:12.5px;color:#6b6b74;}
+  .status.div{color:#c0392b;font-weight:700;}
+  .status.done{color:#2e8b57;font-weight:700;}
+  #meters{margin-top:10px;font-size:13px;}
+  .mrow{margin:6px 0;}
+  .mbarbg{background:#e8e5dc;border-radius:5px;height:13px;position:relative;overflow:hidden;}
+  .mbar{background:#82318E;height:100%;border-radius:5px;width:0%;transition:width .08s;}
+  .mnum{font-family:ui-monospace,monospace;color:#6b6b74;font-size:12px;}
+  #footer{margin-top:10px;font-size:12px;color:#a0a0a8;}
+  .presetbtn{font-size:12.5px;}
+</style>
+</head>
+<body>
+<div id="wrap">
+<h1>优化器交互演示<span class="sub">配套《优化器讲义》· L = ½(h₁θ₁² + h₂θ₂²)</span></h1>
+<div id="tabs"></div>
+<div id="layout">
+  <div id="left">
+    <canvas id="cv" width="760" height="340"></canvas>
+    <canvas id="chart" width="760" height="150"></canvas>
+  </div>
+  <div id="panel">
+    <div id="expl"></div>
+    <div id="controls"></div>
+    <div id="legend"></div>
+    <div id="meters"></div>
+    <div id="footer">拖拽等高线图可改起点(自动重置)。曲线图为 log₁₀ L。</div>
+  </div>
+</div>
+</div>
+<script>
+"use strict";
+// ---------- 数学 ----------
+function rotM(phi){const c=Math.cos(phi),s=Math.sin(phi);return [[c,-s],[s,c]];}
+function matVec(M,v){return [M[0][0]*v[0]+M[0][1]*v[1], M[1][0]*v[0]+M[1][1]*v[1]];}
+function transp(M){return [[M[0][0],M[1][0]],[M[0][1],M[1][1]]];}
+let gaussSpare=null;
+function randn(){ if(gaussSpare!==null){const r=gaussSpare;gaussSpare=null;return r;}
+  let u=0,v=0; while(u===0)u=Math.random(); v=Math.random();
+  const m=Math.sqrt(-2*Math.log(u)); gaussSpare=m*Math.sin(2*Math.PI*v); return m*Math.cos(2*Math.PI*v);}
+const sgn=x=>x>0?1:(x<0?-1:0);
+
+// ---------- 全局状态 ----------
+const S={ h1:1, h2:10, phi:0, eta:0.1, sigma:0, decay:false, playing:false,
+          speed:20, theta0:[10,1], scene:0 };
+function H(){ // H = R diag(h) R^T
+  const R=rotM(S.phi), Rt=transp(R);
+  const D=[[S.h1,0],[0,S.h2]];
+  const RD=[[R[0][0]*S.h1,R[0][1]*S.h2],[R[1][0]*S.h1,R[1][1]*S.h2]];
+  return [[RD[0][0]*Rt[0][0]+RD[0][1]*Rt[1][0], RD[0][0]*Rt[0][1]+RD[0][1]*Rt[1][1]],
+          [RD[1][0]*Rt[0][0]+RD[1][1]*Rt[1][0], RD[1][0]*Rt[0][1]+RD[1][1]*Rt[1][1]]];
+}
+function Hinv(){ const R=rotM(S.phi), Rt=transp(R);
+  const RD=[[R[0][0]/S.h1,R[0][1]/S.h2],[R[1][0]/S.h1,R[1][1]/S.h2]];
+  return [[RD[0][0]*Rt[0][0]+RD[0][1]*Rt[1][0], RD[0][0]*Rt[0][1]+RD[0][1]*Rt[1][1]],
+          [RD[1][0]*Rt[0][0]+RD[1][1]*Rt[1][0], RD[1][0]*Rt[0][1]+RD[1][1]*Rt[1][1]]];
+}
+function loss(th){ const g=matVec(H(),th); return 0.5*(th[0]*g[0]+th[1]*g[1]); }
+function gradTrue(th){ return matVec(H(),th); }
+function gradNoisy(th){ const g=gradTrue(th); return [g[0]+S.sigma*randn(), g[1]+S.sigma*randn()]; }
+
+// ---------- 方法 ----------
+function makeMethod(kind,label,color){
+  return { kind,label,color, th:[0,0], m:[0,0], v:[0,0], t:0,
+    trail:[], lossHist:[], status:"run", doneStep:null, sScale:[1,1], L0:1,
+    reset(){ this.th=[...S.theta0]; this.m=[0,0]; this.v=[0,0]; this.t=0;
+      this.trail=[[...this.th]]; this.lossHist=[loss(this.th)]; this.status="run";
+      this.doneStep=null; this.L0=loss(this.th);
+      this.sScale=[Math.max(Math.abs(this.th[0]),1e-6), Math.max(Math.abs(this.th[1]),1e-6)]; },
+    step(){
+      if(this.status!=="run") return;
+      const eta = S.decay ? S.eta*Math.pow(0.985,this.t) : S.eta;
+      const useNoise = SCENES[S.scene].noise;
+      const g = useNoise ? gradNoisy(this.th) : gradTrue(this.th);
+      const b1=0.9, b2=0.95, t1=this.t+1;
+      switch(this.kind){
+        case "gd": { const e = SCENES[S.scene].gdFixedEta ? 2/(S.h1+S.h2) : S.eta;
+          this.th=[this.th[0]-e*g[0], this.th[1]-e*g[1]]; break; }
+        case "newton": { const d=matVec(Hinv(),g);
+          this.th=[this.th[0]-d[0], this.th[1]-d[1]]; break; }
+        case "sign": this.th=[this.th[0]-eta*sgn(g[0]), this.th[1]-eta*sgn(g[1])]; break;
+        case "signScale": this.th=[this.th[0]-eta*this.sScale[0]*sgn(g[0]),
+                                   this.th[1]-eta*this.sScale[1]*sgn(g[1])]; break;
+        case "signM": { for(let i=0;i<2;i++){ this.m[i]=b1*this.m[i]+(1-b1)*g[i]; }
+          const mh=[this.m[0]/(1-Math.pow(b1,t1)), this.m[1]/(1-Math.pow(b1,t1))];
+          this.th=[this.th[0]-eta*sgn(mh[0]), this.th[1]-eta*sgn(mh[1])]; break; }
+        case "adam": { for(let i=0;i<2;i++){ this.m[i]=b1*this.m[i]+(1-b1)*g[i];
+            this.v[i]=b2*this.v[i]+(1-b2)*g[i]*g[i]; }
+          const mh=[this.m[0]/(1-Math.pow(b1,t1)), this.m[1]/(1-Math.pow(b1,t1))];
+          const vh=[this.v[0]/(1-Math.pow(b2,t1)), this.v[1]/(1-Math.pow(b2,t1))];
+          this.th=[this.th[0]-eta*mh[0]/(Math.sqrt(vh[0])+1e-12),
+                   this.th[1]-eta*mh[1]/(Math.sqrt(vh[1])+1e-12)]; break; }
+        case "rotSign": { const R=rotM(S.phi), gp=matVec(transp(R),g);
+          const d=matVec(R,[sgn(gp[0]),sgn(gp[1])]);
+          this.th=[this.th[0]-eta*d[0], this.th[1]-eta*d[1]]; break; }
+      }
+      this.t++;
+      const L=loss(this.th);
+      this.trail.push([...this.th]); if(this.trail.length>4000)this.trail.shift();
+      this.lossHist.push(L); if(this.lossHist.length>4000)this.lossHist.shift();
+      if(Math.abs(this.th[0])>1e5||Math.abs(this.th[1])>1e5){ this.status="div"; }
+      else if(this.doneStep===null && L < 1e-2*this.L0){ this.doneStep=this.t; }
+    } };
+}
+
+// ---------- 场景定义 ----------
+const C={gd:"#5b7ea8", newton:"#c9a227", sign:"#82318E", scale:"#2e8b57",
+         signNoisy:"#d1495b", signM:"#e07b00", adam:"#82318E", rot:"#2e8b57"};
+const SCENES=[
+ { title:"1 · GD vs 牛顿",
+   expl:"<b>任务:给 GD 找一个好 η。</b>先用「圆碗」预设(h=(1,1)):GD 直奔碗底,牛顿一步到位。然后切「扁碗」(h=(1,10)):调大 η,陡方向(纵向)乘子变红、发散;调小,平缓方向(横向)爬死。<b>不存在好的全局 η</b>——发散判据 |1−ηh|>1 里没有距离,只有曲率。",
+   methods:[["gd","GD",C.gd],["newton","牛顿",C.newton]],
+   eta:{min:0.005,max:0.3,init:0.12}, presets:true, gauges:true, noise:false },
+ { title:"2 · sign-GD:剥掉幅度",
+   expl:"加入 <b>sign-GD</b>(紫,= Adam 的确定性极限):每坐标每步固定挪 η,任何 η 都不爆、不饿死。但到谷底后进入 ±η 振荡带,不再收敛——它不知道底在哪。打开 <b>LR 衰减</b>:振荡带螺旋收紧。这就是「Adam 必须配 LR schedule、牛顿不用」的原因。",
+   methods:[["gd","GD",C.gd],["sign","sign-GD",C.sign],["newton","牛顿",C.newton]],
+   eta:{min:0.01,max:0.5,init:0.15}, decay:true, noise:false },
+ { title:"3 · 信息阶梯:四方对比",
+   expl:"四种算法同台,记分牌 = 到达谷底(L < 1% L₀)的步数。<b>GD</b> 用理论最优 η*=2/(h₁+h₂)(注意这是作弊:实际没人告诉你 η*),步数 ∝ 条件数——<b>把 h₂ 拉到 100 看它掉队</b>;<b>sign-GD</b> 匀速,步数由最远坐标决定,与曲率无关;<b>×scale</b>(= μP/LAMB 思想,尺度因子取初始距离)两坐标同步到达,但注意它到底后的振荡带也被放大到 η·s——尺度因子把步长和振荡带一起放大;<b>牛顿</b> 1 步。拖动起点,看记分牌怎么重排。",
+   methods:[["gd","GD (η*)",C.gd],["sign","sign-GD",C.sign],["signScale","×scale",C.scale],["newton","牛顿",C.newton]],
+   eta:{min:0.01,max:0.5,init:0.1}, gdFixedEta:true, scoreboard:true, noise:false, h2Slider:true },
+ { title:"4 · 噪声:置信度仪表",
+   expl:"梯度加噪声后,<b>裸 sign(g)</b>(红)在谷底附近变成随机游走(sign 抛硬币);<b>sign(m̂)</b>(橙)方向被滤波平滑,但步长永远全速;<b>完整 Adam</b>(紫)靠比值 |m̂|/√v̂ 自动降速。右下角的<b>置信度仪表</b>是本场景的主角:看它在坐标到达谷底或噪声增大时塌向 0。",
+   methods:[["sign","裸 sign(g)",C.signNoisy],["signM","sign(m̂)",C.signM],["adam","Adam",C.adam]],
+   eta:{min:0.01,max:0.4,init:0.12}, noiseSlider:true, noise:true, meters:true },
+ { title:"5 · 旋转病(选讲)",
+   expl:"把碗旋转 φ:Hessian 不再沿坐标轴对角。<b>sign-GD/Adam</b>(紫,逐坐标方法)重新之字形;<b>在正确的基里做 sign</b>(绿,理想化——上帝告知旋转角)恢复正常;牛顿始终无感。对角方法的边界在此:找到那组基(从梯度自己的 SVD 里)正是 Muon/Shampoo 的工作。",
+   methods:[["sign","sign-GD(元素基)",C.sign],["rotSign","sign(正确基)",C.rot],["newton","牛顿",C.newton]],
+   eta:{min:0.01,max:0.4,init:0.12}, phiSlider:true, noise:false },
+];
+let METHODS=[];
+
+// ---------- 画布与坐标 ----------
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+const ch=document.getElementById("chart"), ctc=ch.getContext("2d");
+const W=cv.width, Hh=cv.height, XR=12.5, YR=XR*Hh/W; // 等比例
+const toPx=p=>[ (p[0]/XR*0.5+0.5)*W, (0.5-p[1]/YR*0.5)*Hh ];
+const toWorld=(x,y)=>[ (x/W-0.5)*2*XR, (0.5-y/Hh)*2*YR ];
+
+function drawContours(){
+  ctx.clearRect(0,0,W,Hh);
+  // 数值刻度网格
+  ctx.strokeStyle="#efece4"; ctx.lineWidth=1;
+  ctx.font="10px ui-monospace,monospace"; ctx.fillStyle="#b0aca0"; ctx.textAlign="center";
+  for(const gx of [-10,-5,5,10]){ const p=toPx([gx,0]);
+    ctx.beginPath(); ctx.moveTo(p[0],0); ctx.lineTo(p[0],Hh); ctx.stroke();
+    ctx.fillText(gx, p[0], toPx([0,0])[1]+13); }
+  for(const gy of [-4,-2,2,4]){ const p=toPx([0,gy]);
+    ctx.beginPath(); ctx.moveTo(0,p[1]); ctx.lineTo(W,p[1]); ctx.stroke();
+    ctx.textAlign="left"; ctx.fillText(gy, toPx([0,0])[0]+4, p[1]-2); ctx.textAlign="center"; }
+  // 坐标轴
+  ctx.strokeStyle="#d8d5cc"; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(...toPx([-XR,0])); ctx.lineTo(...toPx([XR,0]));
+  ctx.moveTo(...toPx([0,-YR])); ctx.lineTo(...toPx([0,YR])); ctx.stroke();
+  ctx.fillStyle="#9a9aa2"; ctx.textAlign="right"; ctx.fillText("θ₁", W-4, toPx([0,0])[1]-4);
+  ctx.textAlign="left"; ctx.fillText("θ₂", toPx([0,0])[0]+4, 12);
+  const L0=Math.max(loss(S.theta0),1);
+  const R=rotM(S.phi);
+  ctx.strokeStyle="#d8d5cc";
+  // 等 ΔL 间距:圈在梯度大处(外围/陡方向)变密,中心最平最疏——正确的凸显各向异性
+  for(let k=1;k<=9;k++){
+    const L=L0*k/7;
+    const a=Math.sqrt(2*L/S.h1), b=Math.sqrt(2*L/S.h2);
+    ctx.beginPath();
+    for(let i=0;i<=72;i++){ const ps=i/72*2*Math.PI;
+      const p=matVec(R,[a*Math.cos(ps), b*Math.sin(ps)]);
+      const q=toPx(p); if(i===0)ctx.moveTo(q[0],q[1]); else ctx.lineTo(q[0],q[1]); }
+    ctx.stroke();
+  }
+  // 最优点(= 原点,L 的最小值处)
+  const o=toPx([0,0]);
+  ctx.fillStyle="#82318E"; ctx.beginPath(); ctx.arc(o[0],o[1],4.5,0,7); ctx.fill();
+  ctx.strokeStyle="#82318E"; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(o[0],o[1],8,0,7); ctx.stroke();
+  ctx.font="12px sans-serif"; ctx.fillStyle="#6b6b74"; ctx.textAlign="left";
+  ctx.fillText("最优点 (0,0)",o[0]+12,o[1]-8);
+  // 起点(标出坐标)
+  const st=toPx(S.theta0); ctx.strokeStyle="#1b1b1f"; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(st[0],st[1],5,0,7); ctx.stroke();
+  ctx.fillStyle="#1b1b1f"; ctx.font="11px ui-monospace,monospace"; ctx.textAlign="left";
+  const lx = st[0] > W-80 ? st[0]-72 : st[0]+9;
+  ctx.fillText(`起点 θ₀=(${S.theta0[0].toFixed(1)}, ${S.theta0[1].toFixed(1)})`, lx, st[1]-7);
+}
+function drawTrails(){
+  for(const m of METHODS){
+    ctx.strokeStyle=m.color; ctx.lineWidth=1.8; ctx.globalAlpha=0.9;
+    ctx.beginPath();
+    let started=false;
+    for(const p of m.trail){
+      if(Math.abs(p[0])>XR*3||Math.abs(p[1])>YR*3) continue;
+      const q=toPx(p);
+      if(!started){ctx.moveTo(q[0],q[1]);started=true;} else ctx.lineTo(q[0],q[1]);
+    }
+    ctx.stroke(); ctx.globalAlpha=1;
+    const last=m.trail[m.trail.length-1];
+    if(Math.abs(last[0])<=XR*3&&Math.abs(last[1])<=YR*3){
+      const q=toPx(last); ctx.fillStyle=m.color;
+      ctx.beginPath(); ctx.arc(q[0],q[1],4,0,7); ctx.fill(); }
+  }
+}
+function drawChart(){
+  ctc.clearRect(0,0,ch.width,ch.height);
+  ctc.strokeStyle="#e2dfd6"; ctc.strokeRect(0,0,ch.width,ch.height);
+  let maxT=10,minL=-3.5,maxL=1;
+  for(const m of METHODS){ maxT=Math.max(maxT,m.lossHist.length);
+    for(const L of m.lossHist){ const l=Math.log10(Math.max(L,1e-8));
+      maxL=Math.max(maxL,l); } }
+  maxL=Math.min(maxL,8);
+  const px=(t,l)=>[ t/maxT*(ch.width-8)+4, (maxL-l)/(maxL-minL)*(ch.height-8)+4 ];
+  ctc.font="11px sans-serif"; ctc.fillStyle="#a0a0a8";
+  ctc.fillText("log₁₀ L",8,14); ctc.fillText("步数 →",ch.width-50,ch.height-8);
+  for(const m of METHODS){
+    ctc.strokeStyle=m.color; ctc.lineWidth=1.5; ctc.beginPath();
+    m.lossHist.forEach((L,i)=>{ const l=Math.max(Math.min(Math.log10(Math.max(L,1e-8)),maxL),minL);
+      const q=px(i,l); if(i===0)ctc.moveTo(q[0],q[1]); else ctc.lineTo(q[0],q[1]); });
+    ctc.stroke();
+  }
+}
+
+// ---------- 面板 ----------
+const $=id=>document.getElementById(id);
+function buildTabs(){
+  $("tabs").innerHTML="";
+  SCENES.forEach((sc,i)=>{ const d=document.createElement("div");
+    d.className="tab"+(i===S.scene?" active":""); d.textContent=sc.title;
+    d.onclick=()=>{S.scene=i; setupScene();}; $("tabs").appendChild(d); });
+}
+function ctlSlider(label,min,max,val,step,fmt,onch){
+  const row=document.createElement("div"); row.className="ctlrow";
+  const lb=document.createElement("label"); lb.textContent=label;
+  const inp=document.createElement("input"); inp.type="range";
+  inp.min=min; inp.max=max; inp.step=step; inp.value=val;
+  const vv=document.createElement("span"); vv.className="val"; vv.textContent=fmt(val);
+  inp.oninput=()=>{ onch(parseFloat(inp.value)); vv.textContent=fmt(parseFloat(inp.value)); };
+  row.append(lb,inp,vv); return row;
+}
+function setupScene(){
+  const sc=SCENES[S.scene];
+  buildTabs();
+  $("expl").innerHTML=sc.expl;
+  S.eta=sc.eta.init; S.decay=false; S.sigma=sc.noiseSlider?0.8:0;
+  S.phi=sc.phiSlider?Math.PI/4:0;
+  if(S.scene===0){S.h2=10;} else {S.h2=10;}
+  S.theta0=[10,1];
+  const ct=$("controls"); ct.innerHTML="";
+  // 播放控制
+  const row=document.createElement("div"); row.className="ctlrow";
+  const play=document.createElement("button"); play.className="primary"; play.id="playbtn";
+  play.textContent="▶ 播放"; play.onclick=()=>{S.playing=!S.playing;
+    play.textContent=S.playing?"⏸ 暂停":"▶ 播放";};
+  const stepb=document.createElement("button"); stepb.textContent="单步";
+  stepb.onclick=()=>{ METHODS.forEach(m=>m.step()); };
+  const reset=document.createElement("button"); reset.textContent="重置";
+  reset.onclick=resetAll;
+  row.append(play,stepb,reset); ct.appendChild(row);
+  ct.appendChild(ctlSlider("速度(步/秒)",2,120,S.speed,1,v=>v.toFixed(0),v=>S.speed=v));
+  ct.appendChild(ctlSlider("学习率 η",sc.eta.min,sc.eta.max,sc.eta.init,0.001,
+    v=>v.toFixed(3),v=>{S.eta=v; if(SCENES[S.scene].gauges)updateGauges();}));
+  if(sc.presets){
+    const pr=document.createElement("div"); pr.className="ctlrow";
+    const b1=document.createElement("button"); b1.className="presetbtn";
+    b1.textContent="圆碗 h=(1,1)"; b1.onclick=()=>{S.h2=1; resetAll();};
+    const b2=document.createElement("button"); b2.className="presetbtn";
+    b2.textContent="扁碗 h=(1,10)"; b2.onclick=()=>{S.h2=10; resetAll();};
+    pr.append(b1,b2); ct.appendChild(pr);
+  }
+  if(sc.decay){
+    const dr=document.createElement("div"); dr.className="ctlrow";
+    const cb=document.createElement("input"); cb.type="checkbox"; cb.id="decaycb";
+    cb.onchange=()=>{S.decay=cb.checked;};
+    const lb=document.createElement("label"); lb.htmlFor="decaycb";
+    lb.textContent="LR 衰减 (η_t = η·0.985ᵗ)"; lb.style.minWidth="0";
+    dr.append(cb,lb); ct.appendChild(dr);
+  }
+  if(sc.h2Slider) ct.appendChild(ctlSlider("h₂ (条件数 κ)",2,100,S.h2,1,
+    v=>v.toFixed(0),v=>{S.h2=v; resetAll();}));
+  if(sc.noiseSlider) ct.appendChild(ctlSlider("噪声 σ",0,3,S.sigma,0.05,
+    v=>v.toFixed(2),v=>S.sigma=v));
+  if(sc.phiSlider) ct.appendChild(ctlSlider("旋转角 φ(度)",0,90,45,1,
+    v=>v.toFixed(0)+"°",v=>{S.phi=v*Math.PI/180; resetAll();}));
+  if(sc.gauges){
+    const g=document.createElement("div"); g.className="ctlrow"; g.id="gauges";
+    ct.appendChild(g); }
+  $("meters").innerHTML = sc.meters ?
+    '<b>Adam 置信度仪表 |m̂|/√v̂</b>'+[1,2].map(i=>
+      `<div class="mrow">θ${i==1?"₁":"₂"} <span class="mnum" id="mnum${i}"></span>
+       <div class="mbarbg"><div class="mbar" id="mbar${i}"></div></div></div>`).join("") : "";
+  METHODS=sc.methods.map(([k,l,c])=>makeMethod(k,l,c));
+  resetAll();
+  if(sc.gauges)updateGauges();
+}
+function updateGauges(){
+  const g=$("gauges"); if(!g)return;
+  const m1=Math.abs(1-S.eta*S.h1), m2=Math.abs(1-S.eta*S.h2);
+  const pill=(v,h)=>`<span class="pill" style="background:${v>1?"#c0392b":(v>0.95?"#e07b00":"#2e8b57")}">|1−η·${h}| = ${v.toFixed(2)}</span>`;
+  g.innerHTML="乘子: "+pill(m1,"h₁")+" "+pill(m2,"h₂")+(m2>1?' <b style="color:#c0392b">陡方向发散!</b>':"");
+}
+function updateLegend(){
+  const lg=$("legend"); lg.innerHTML="";
+  const sc=SCENES[S.scene];
+  for(const m of METHODS){
+    const d=document.createElement("div"); d.className="legend-item";
+    let st;
+    if(m.status==="div") st='<span class="status div">发散</span>';
+    else if(m.doneStep!==null) st=`<span class="status done">到达谷底 @ ${m.doneStep} 步</span>`;
+    else st=`<span class="status">${m.t} 步 · L=${loss(m.th).toExponential(1)}</span>`;
+    let extra="";
+    if(m.kind==="signScale") extra=` <span class="status">s=(${m.sScale[0].toFixed(1)}, ${m.sScale[1].toFixed(1)})=初始距离</span>`;
+    d.innerHTML=`<span class="dot" style="background:${m.color}"></span><b>${m.label}</b>${extra} ${st}`;
+    lg.appendChild(d);
+  }
+}
+function updateMeters(){
+  if(!SCENES[S.scene].meters) return;
+  const adam=METHODS.find(m=>m.kind==="adam"); if(!adam||adam.t===0) return;
+  const b1=0.9,b2=0.95,t=adam.t;
+  for(let i=0;i<2;i++){
+    const mh=adam.m[i]/(1-Math.pow(b1,t)), vh=adam.v[i]/(1-Math.pow(b2,t));
+    const ratio=Math.min(Math.abs(mh)/(Math.sqrt(vh)+1e-12),1.2);
+    $("mbar"+(i+1)).style.width=(Math.min(ratio,1)*100).toFixed(1)+"%";
+    $("mnum"+(i+1)).textContent=` m̂=${mh.toFixed(3)}  √v̂=${Math.sqrt(vh).toFixed(3)}  比值=${ratio.toFixed(2)}`;
+  }
+}
+function resetAll(){ METHODS.forEach(m=>m.reset()); }
+
+// 拖拽改起点
+cv.addEventListener("mousedown",e=>{
+  const r=cv.getBoundingClientRect();
+  S.theta0=toWorld(e.clientX-r.left, e.clientY-r.top);
+  resetAll();
+});
+
+// ---------- 主循环 ----------
+let acc=0,lastT=performance.now();
+function frame(now){
+  const dt=(now-lastT)/1000; lastT=now;
+  if(S.playing){ acc+=dt*S.speed;
+    const n=Math.floor(acc); acc-=n;
+    for(let i=0;i<Math.min(n,200);i++) METHODS.forEach(m=>m.step()); }
+  drawContours(); drawTrails(); drawChart(); updateLegend(); updateMeters();
+  requestAnimationFrame(frame);
+}
+setupScene();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# nanoinfra 作为库安装(自带 torch / hydra 等依赖)——真训练探针需要;微基准其实只用 torch
+nanoinfra @ git+https://github.com/suning-git/nanoinfra
+# d3_logits_chain 的融合交叉熵对照需要:
+liger-kernel

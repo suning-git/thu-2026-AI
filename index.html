@@ -41,6 +41,21 @@
 
 <section>
   <div class="wrap">
+    <h2><span class="num">上手</span>怎么学这门课</h2>
+    <p class="muted">材料都在下方"资源"区，上手的主干只有四步，按顺序走；之后的专题（第四课起）按兴趣挑。</p>
+    <table class="steps">
+      <tr><th>步骤</th><th>做什么</th><th>过关判据</th></tr>
+      <tr><td>0 · 搭环境</td><td>照<a href="resources/setup.html">环境指引</a>装好，跑起<a href="downloads/第一周材料.zip">第一周材料包</a>里的 minimal_gpt</td><td>它能对输入文本给出下一个 token 的预测</td></tr>
+      <tr><td>1 · 背熟结构</td><td>盯着 <a href="https://suning-git.github.io/llm-viz/" target="_blank" rel="noopener">3D 可视化</a>看、对照 minimal_gpt 的代码；<a href="slides/lesson-1.html">第一课</a>补齐规则</td><td>凭记忆画出完整数据流，标出各处形状</td></tr>
+      <tr><td>2 · 训练真模型</td><td>学<a href="slides/lesson-2.html">第二课</a>、<a href="slides/lesson-3.html">第三课</a>，用 <a href="https://github.com/suning-git/nanoinfra" target="_blank" rel="noopener">nanoinfra</a> 在真实语料上训练</td><td>训出自己的 loss 曲线，复现 scaling law</td></tr>
+      <tr><td>3 · 做一个消融</td><td>fork <a href="https://github.com/suning-git/understand_transformer_by_ablation" target="_blank" rel="noopener">消融实验合集</a>，照模板只改一个成分、与原版对照</td><td>向合集提一个 PR：对照曲线 + 你的结论</td></tr>
+    </table>
+    <p class="muted" style="font-size:.92rem">建议全程让 AI 当你的工程助手——示范见第五课的 <a href="resources/vibe-coding-demo.html">Vibe Coding 现场实录</a>。走完这四步就算上手，剩下的专题按兴趣选。</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
     <h2><span class="num">大纲</span>课程内容</h2>
     <div class="outline">
       <div class="item">
@@ -73,11 +88,12 @@
   </div>
 </section>
 
+
 <section>
   <div class="wrap">
     <h2><span class="num">资源</span>课件与材料</h2>
 
-    <p class="kicker" style="margin-top:6px">讲义 · Slides</p>
+    <p class="kicker" style="margin-top:6px">讲义 · Slides <span style="letter-spacing:normal;text-transform:none;color:var(--dim);font-weight:400;font-size:.85rem">（打开后用 ← → 键翻页）</span></p>
     <div class="cards">
       <a class="card" href="slides/lesson-1.html">
         <span class="tag">第一课</span><h3>Transformer 架构与推理</h3>
@@ -95,6 +111,14 @@
         <span class="tag">第四课</span><h3>多模态：以运动为例</h3>
         <p>从连续信号到 token：tokenizer（VQ / FSQ）、率失真、旋转表示的拓扑、energy score。</p>
       </a>
+      <a class="card" href="resources/vibe-coding-demo.html">
+        <span class="tag">第五课</span><h3>Vibe Coding 现场实录</h3>
+        <p>完整对话实录：你定方向、给约束、要证据，AI 写码跑实验，从零做出两个多模态项目。</p>
+      </a>
+      <a class="card" href="slides/lesson-6.html">
+        <span class="tag">第六课</span><h3>优化器与训练工程</h3>
+        <p>从梯度下降到 AdamW 与 Muon；显存、MFU、torch.compile、FSDP——断言配真实 GPU 实测。</p>
+      </a>
     </div>
 
     <p class="kicker" style="margin-top:30px">动手 · Hands-on</p>
@@ -103,13 +127,17 @@
         <span class="tag">交互 · 3D</span><h3>LLM 3D 可视化</h3>
         <p>在浏览器里逐站看一个真实 nano-GPT 跑推理。含本机可跑的同款模型 <code>minimal_gpt</code>。</p>
       </a>
-      <a class="card" href="resources/vibe-coding-demo.html">
-        <span class="tag">实录 · AI 辅助工程</span><h3>Vibe Coding 现场实录</h3>
-        <p>一次现场 demo 的完整对话:从零搭沙盒,到并行做出 Text2Motion 与 Text2Audio 两个多模态项目。你定方向、给约束、要证据,AI 调研写码跑实验。</p>
+      <a class="card" href="resources/optimizer-demo.html">
+        <span class="tag">交互 · 优化器</span><h3>优化器实验台</h3>
+        <p>同一个病态的椭圆碗，拖学习率、切换 GD / 牛顿 / sign-GD / ×scale / Adam，看每种更新规则怎么走、为什么快或发散。</p>
       </a>
       <a class="card" href="https://github.com/suning-git/nanoinfra" target="_blank" rel="noopener">
         <span class="tag">代码 · GitHub</span><h3>课程训练框架 nanoinfra</h3>
         <p>FineWeb 真语料、FSDP 多卡、RoPE、scaling law 演示版。Hackathon 和消融实验都在它上面做。</p>
+      </a>
+      <a class="card" href="https://github.com/suning-git/thu-2026-AI/tree/main/live-demos/training_engineering_demos" target="_blank" rel="noopener">
+        <span class="tag">现场 demo · 代码</span><h3>训练工程演示代码</h3>
+        <p>计时、显存、util 与 MFU、torch.compile、KV cache、FSDP——每个 demo 先打印预言、再打印实测，装好依赖就能在自己的 GPU 上复跑。</p>
       </a>
       <a class="card" href="https://github.com/suning-git/understand_transformer_by_ablation" target="_blank" rel="noopener">
         <span class="tag">代码 · GitHub</span><h3>消融实验合集</h3>
@@ -157,8 +185,8 @@
       <li class="hk"><span class="date">7/12 日</span><span class="body"><span class="t">Hackathon 1</span> <span class="k">跑通 scaling law + 负向 ablation</span></span></li>
       <li><span class="date">7/13 一</span><span class="body"><span class="t">课 4 · 多模态:以运动为例</span> <span class="k">tokenizer(VQ / FSQ)/ 率失真 / 旋转表示 / energy score</span></span></li>
       <li class="summit"><span class="date">7/15–18</span><span class="body"><span class="t">上海人工智能大会</span></span></li>
-      <li><span class="date">7/20 一</span><span class="body"><span class="t">课 5</span></span></li>
-      <li><span class="date">7/22 三</span><span class="body"><span class="t">课 6</span></span></li>
+      <li><span class="date">7/20 一</span><span class="body"><span class="t">课 5 · Vibe Coding:AI 辅助工程现场</span> <span class="k">实录见上方"第五课"</span></span></li>
+      <li><span class="date">7/22 三</span><span class="body"><span class="t">课 6 · 优化器与训练工程</span> <span class="k">GD→AdamW→Muon / 显存 / MFU / compile / FSDP</span></span></li>
       <li><span class="date">7/24 五</span><span class="body"><span class="t">课 7</span></span></li>
       <li class="hk"><span class="date">7/26 日</span><span class="body"><span class="t">Hackathon 2</span> <span class="k">Parameter golf</span></span></li>
       <li><span class="date">7/27 一</span><span class="body"><span class="t">课 8</span></span></li>

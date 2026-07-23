@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """build_site.py — 生成课程网站的静态资源页。
 
-做三件事：
+做四件事：
   1. 把 course_material/ 下的资料 Markdown 渲染成 resources/*.html（套 site.css + 返回链接）；
-  2. 把 course_design/ 下的三课自包含 deck 拷进 slides/；
-  3. 把第一周材料.zip 拷进 downloads/。
+  2. 把 course_design/ 下的自包含 deck 拷进 slides/；
+  3. 把第一周材料.zip 拷进 downloads/；
+  4. 把主库 projects/ 下的课堂现场 demo 代码同步进 live-demos/（源头唯一在主库）。
 
 依赖：python `markdown`（`pip install markdown`，或用 venv）。
 运行：python3 build_site.py
@@ -19,6 +20,7 @@ except ImportError:
 HERE = pathlib.Path(__file__).resolve().parent          # course_website/
 CM   = HERE.parent                                      # course_material/
 CD   = CM.parent / "course_design"                      # teaching/course_design/
+NANO = HERE.parents[4]                                  # nanoinfra 主库根（…/private/ning/teaching 上三层）
 
 FAVICON = ("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'"
            "%3E%3Crect width='32' height='32' rx='7' fill='%2382318E'/%3E%3Ctext x='16' y='23' "
@@ -58,6 +60,7 @@ DECKS = [
     ("第二课_slides_training.html",    "lesson-2.html"),
     ("第三课_slides_真实训练.html",     "lesson-3.html"),
     ("第四课_slides_多模态运动_公开版.html", "lesson-4.html"),
+    ("第六课_slides_优化器与训练工程.html", "lesson-6.html"),
 ]
 
 ZIP = "第一周材料.zip"
@@ -81,12 +84,33 @@ def main():
         (HERE / "resources" / out).write_text(html, encoding="utf-8")
         n_doc += 1
 
+    # 发布版 deck 注入"← → 键翻页"角标:按过一次翻页键即永久消失(localStorage),
+    # 15 秒无操作也自动淡出;只进网站拷贝,课堂版原件不动。
+    PG_HINT = (
+        '<div id="pgHint" style="position:fixed;right:18px;bottom:60px;z-index:99;'
+        'font:500 14px/1.6 system-ui,sans-serif;color:#fff;background:rgba(27,27,31,.72);'
+        'padding:6px 14px;border-radius:999px;pointer-events:none;transition:opacity .5s">'
+        '← → 键翻页</div>\n'
+        "<script>(function(){var h=document.getElementById('pgHint');"
+        "try{if(localStorage.getItem('pgHintDone')){h.remove();return;}}catch(e){}"
+        "function done(){try{localStorage.setItem('pgHintDone','1')}catch(e){}"
+        "h.style.opacity=0;setTimeout(function(){h.remove()},600);"
+        "window.removeEventListener('keydown',k);}"
+        "function k(e){if(e.key==='ArrowRight'||e.key==='ArrowLeft'||e.key==='PageDown'"
+        "||e.key==='PageUp'||e.key===' ')done();}"
+        "window.addEventListener('keydown',k);setTimeout(done,15000);})();</script>\n")
+
     n_deck = 0
     for src, out in DECKS:
         p = CD / src
         if not p.exists():
             print(f"  warn: 缺 deck {src}，跳过"); continue
-        shutil.copyfile(p, HERE / "slides" / out)
+        html = p.read_text(encoding="utf-8")
+        if "</body>" in html:
+            html = html.replace("</body>", PG_HINT + "</body>", 1)
+        else:
+            html += PG_HINT
+        (HERE / "slides" / out).write_text(html, encoding="utf-8")
         n_deck += 1
 
     # 第一周材料.zip：从源头现打（更新版 .md + minimal_gpt/ + Mathematica 补充笔记本），再拷进 downloads/
@@ -104,7 +128,19 @@ def main():
     shutil.copyfile(zp, HERE / "downloads" / ZIP)
     n_zip = len(zipfile.ZipFile(zp).namelist())
 
-    print(f"wrote  resources: {n_doc}/{len(DOCS)}  ·  slides: {n_deck}/{len(DECKS)}  ·  材料包: {n_zip} 项")
+    # 交互 demo：优化器实验台（自包含单文件，源头在 teaching/private/）
+    shutil.copyfile(CM.parent / "private" / "优化器_demo.html",
+                    HERE / "resources" / "optimizer-demo.html")
+
+    # 课堂现场 demo 代码：主库 projects/ 是唯一源头，这里整目录同步（去缓存）
+    demos_src = NANO / "projects" / "training_engineering_demos"
+    demos_dst = HERE / "live-demos" / "training_engineering_demos"
+    if demos_dst.exists():
+        shutil.rmtree(demos_dst)
+    shutil.copytree(demos_src, demos_dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    n_demo = len([p for p in demos_dst.rglob("*") if p.is_file()])
+
+    print(f"wrote  resources: {n_doc}/{len(DOCS)}  ·  slides: {n_deck}/{len(DECKS)}  ·  材料包: {n_zip} 项  ·  live-demos: {n_demo} 文件")
 
 
 if __name__ == "__main__":
