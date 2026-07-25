@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """build_site.py — 生成课程网站的静态资源页。
 
-做四件事：
+做五件事：
   1. 把 course_material/ 下的资料 Markdown 渲染成 resources/*.html（套 site.css + 返回链接）；
-  2. 把 course_design/ 下的自包含 deck 拷进 slides/；
-  3. 把第一周材料.zip 拷进 downloads/；
-  4. 把主库 projects/ 下的课堂现场 demo 代码同步进 live-demos/（源头唯一在主库）。
+  2. 把 teaching/lecture_notes/ 下的长篇讲义渲染成 notes/*.html（同壳 + MathJax 渲染公式 + 拷图）；
+  3. 把 course_design/ 下的自包含 deck 拷进 slides/；
+  4. 把第一周材料.zip 拷进 downloads/；
+  5. 把主库 projects/ 下的课堂现场 demo 代码同步进 live-demos/（源头唯一在主库）。
 
 依赖：python `markdown`（`pip install markdown`，或用 venv）。
 运行：python3 build_site.py
 """
-import pathlib, shutil, sys, zipfile
+import pathlib, re, shutil, sys, zipfile
 
 try:
     import markdown
@@ -20,6 +21,7 @@ except ImportError:
 HERE = pathlib.Path(__file__).resolve().parent          # course_website/
 CM   = HERE.parent                                      # course_material/
 CD   = CM.parent / "course_design"                      # teaching/course_design/
+LN   = CM.parent / "lecture_notes"                       # teaching/lecture_notes/
 NANO = HERE.parents[4]                                  # nanoinfra 主库根（…/private/ning/teaching 上三层）
 
 FAVICON = ("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'"
@@ -45,6 +47,43 @@ SHELL = """<!doctype html>
 </html>
 """
 
+# 长篇讲义专用壳：与 SHELL 同版式，额外挂 MathJax（CHTML 输出——能渲染 \text{} 里的中文，
+# tex→svg 做不到）在浏览器端渲染公式。站点是公开 GitHub Pages，用 CDN 无妨。
+NOTE_SHELL = SHELL.replace("</head>", """<script>
+MathJax = {
+  tex: { inlineMath: [['$', '$']], displayMath: [['$$', '$$']], processEscapes: true },
+  options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'] }
+};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</head>""")
+
+# (源 MD, 输出文件名, <title>, 图目录名)。图目录整个拷进 notes/<图目录名>/，
+# 与 md 里的相对图片路径一致，链接不用改。图目录名为 None 表示该讲义无配图。
+NOTES = [
+    ("前沿架构_解读.md", "frontier-arch.html",
+     "前沿架构解读:DeepSeek V4", "nano-dsv4_figs"),
+]
+
+
+def protect_math(text):
+    """把 $$…$$ 和 $…$ 数学段抠成占位符，防 markdown 把 x_t 里的下划线吃成 <em>；
+    渲染后原样填回，交给 MathJax。此讲义正文的代码块/行内代码里没有 $（已核），所以直接扫全文安全。"""
+    store = []
+    def stash(m):
+        store.append(m.group(0))
+        return f"xMATHSPAN{len(store)-1}x"
+    text = re.sub(r'\$\$.+?\$\$', stash, text, flags=re.S)   # 先块级
+    text = re.sub(r'\$[^\$\n]+?\$', stash, text)             # 再行内
+    return text, store
+
+
+def restore_math(html, store):
+    for i, raw in enumerate(store):
+        html = html.replace(f"xMATHSPAN{i}x", raw)
+    return html
+
+
 # (源 MD, 输出文件名, <title>)
 DOCS = [
     ("第一周作业.md",                 "homework-week1.html", "第一周作业"),
@@ -61,6 +100,7 @@ DECKS = [
     ("第三课_slides_真实训练.html",     "lesson-3.html"),
     ("第四课_slides_多模态运动_公开版.html", "lesson-4.html"),
     ("第六课_slides_优化器与训练工程.html", "lesson-6.html"),
+    ("第七课_slides_前沿架构.html", "lesson-7.html"),
 ]
 
 ZIP = "第一周材料.zip"
@@ -69,6 +109,7 @@ ZIP = "第一周材料.zip"
 def main():
     (HERE / "resources").mkdir(exist_ok=True)
     (HERE / "slides").mkdir(exist_ok=True)
+    (HERE / "notes").mkdir(exist_ok=True)
     (HERE / "downloads").mkdir(exist_ok=True)
 
     md = markdown.Markdown(extensions=["fenced_code", "tables", "sane_lists", "attr_list"])
@@ -83,6 +124,24 @@ def main():
         html = SHELL.replace("%%TITLE%%", title).replace("%%FAVICON%%", FAVICON).replace("%%BODY%%", body)
         (HERE / "resources" / out).write_text(html, encoding="utf-8")
         n_doc += 1
+
+    # 长篇讲义：保护数学段 → markdown → 填回数学 → 套 MathJax 壳；图目录整拷进 notes/
+    n_note = 0
+    for src, out, title, figdir in NOTES:
+        p = LN / src
+        if not p.exists():
+            print(f"  warn: 缺讲义 {src}，跳过"); continue
+        text, store = protect_math(p.read_text(encoding="utf-8"))
+        md.reset()
+        body = restore_math(md.convert(text), store)
+        html = NOTE_SHELL.replace("%%TITLE%%", title).replace("%%FAVICON%%", FAVICON).replace("%%BODY%%", body)
+        (HERE / "notes" / out).write_text(html, encoding="utf-8")
+        if figdir:
+            dst = HERE / "notes" / figdir
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.copytree(LN / figdir, dst, ignore=shutil.ignore_patterns("*.md", "__pycache__"))
+        n_note += 1
 
     # 发布版 deck 注入"← → 键翻页"角标:按过一次翻页键即永久消失(localStorage),
     # 15 秒无操作也自动淡出;只进网站拷贝,课堂版原件不动。
@@ -140,7 +199,7 @@ def main():
     shutil.copytree(demos_src, demos_dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     n_demo = len([p for p in demos_dst.rglob("*") if p.is_file()])
 
-    print(f"wrote  resources: {n_doc}/{len(DOCS)}  ·  slides: {n_deck}/{len(DECKS)}  ·  材料包: {n_zip} 项  ·  live-demos: {n_demo} 文件")
+    print(f"wrote  resources: {n_doc}/{len(DOCS)}  ·  notes: {n_note}/{len(NOTES)}  ·  slides: {n_deck}/{len(DECKS)}  ·  材料包: {n_zip} 项  ·  live-demos: {n_demo} 文件")
 
 
 if __name__ == "__main__":
