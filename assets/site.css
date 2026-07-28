@@ -103,6 +103,7 @@ body.doc .docnav{border-bottom:1px solid var(--line);}
 body.doc .docnav .wrap{padding-top:16px;padding-bottom:16px;}
 body.doc .docnav a{font-size:.92rem;letter-spacing:.02em;}
 .prose{max-width:760px;margin:0 auto;padding:36px 24px 72px;}
+body.note .prose{max-width:1140px;}
 .prose h1{font-size:2rem;margin:0 0 18px;letter-spacing:-.01em;}
 .prose h2{font-size:1.4rem;margin:34px 0 12px;padding-top:8px;}
 .prose h3{font-size:1.1rem;margin:24px 0 8px;}

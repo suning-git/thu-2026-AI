@@ -56,13 +56,15 @@ MathJax = {
 };
 </script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
-</head>""")
+</head>""").replace('<body class="doc">', '<body class="doc note">')
 
 # (源 MD, 输出文件名, <title>, 图目录名)。图目录整个拷进 notes/<图目录名>/，
 # 与 md 里的相对图片路径一致，链接不用改。图目录名为 None 表示该讲义无配图。
 NOTES = [
     ("前沿架构_解读.md", "frontier-arch.html",
      "前沿架构解读:DeepSeek V4", "nano-dsv4_figs"),
+    ("视频世界模型_讲义.md", "video-world-model.html",
+     "视频世界模型", "video_wm_figs"),
 ]
 
 
@@ -101,6 +103,7 @@ DECKS = [
     ("第四课_slides_多模态运动_公开版.html", "lesson-4.html"),
     ("第六课_slides_优化器与训练工程.html", "lesson-6.html"),
     ("第七课_slides_前沿架构.html", "lesson-7.html"),
+    ("第八课_slides_视频世界模型.html", "lesson-8.html"),
 ]
 
 ZIP = "第一周材料.zip"
